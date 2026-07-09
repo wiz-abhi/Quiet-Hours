@@ -1,0 +1,63 @@
+{
+  "display_information": {
+    "name": "Quiet Hours",
+    "description": "An on-call agent that protects the human, not just the service.",
+    "background_color": "#1a1a2e",
+    "long_description": "Quiet Hours watches high-intensity Slack channels and, when it detects one person carrying an incident alone late at night, gently offers to page a rested backup, draft the handoff note, hold non-critical pings, and post a morning thank-you. Every number it shows is observed in Slack — nothing is invented. Built for the Slack Agent Builder Challenge (Agent for Good)."
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "quiet-hours",
+      "always_online": true
+    },
+    "app_home": {
+      "home_tab_enabled": true,
+      "messages_tab_enabled": true,
+      "messages_tab_read_only_enabled": false
+    },
+    "slash_commands": [
+      {
+        "command": "/quiethours",
+        "description": "Quiet Hours controls",
+        "usage_hint": "[watch|optin|optout|demo|morning|status|test]",
+        "should_escape": false
+      }
+    ]
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "app_mentions:read",
+        "assistant:write",
+        "canvases:write",
+        "channels:history",
+        "channels:read",
+        "chat:write",
+        "commands",
+        "groups:history",
+        "im:history",
+        "im:write",
+        "search:read",
+        "users:read"
+      ]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "bot_events": [
+        "app_home_opened",
+        "app_mention",
+        "assistant_thread_started",
+        "message.channels",
+        "message.groups",
+        "message.im"
+      ]
+    },
+    "interactivity": {
+      "is_enabled": true
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": true,
+    "token_rotation_enabled": false
+  }
+}

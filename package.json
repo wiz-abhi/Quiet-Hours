@@ -1,0 +1,21 @@
+{
+  "name": "quiet-hours",
+  "version": "1.0.0",
+  "description": "Quiet Hours — a Slack Agent for Good that spots a lone on-call firefighter late at night and helps them hand off and rest.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/app.js",
+    "mcp": "node src/mcp/pagerdutyServer.js",
+    "demo:check": "node --check src/app.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.1",
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "@slack/bolt": "^4.1.1",
+    "dotenv": "^16.4.5"
+  }
+}

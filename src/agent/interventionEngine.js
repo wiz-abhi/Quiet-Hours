@@ -13,6 +13,7 @@
  */
 
 import { getBuffer } from '../detection/watcher.js';
+import { buildHeuristicContextFromScript } from '../demo/seed.js';
 
 const SNOOZE_MINUTES = 30;
 
@@ -153,7 +154,12 @@ export function makeInterventionEngine({ ledger, ui, mcp, agent, config }) {
     }
 
     const observed = reconstructObserved(session);
-    const threadContext = reconstructThreadContext(session, observed);
+    // Demo sessions draft from the scripted incident itself — the live buffer
+    // holds the seeded bot echoes plus whatever the demo runner typed, which
+    // produces a nonsense note ("What's going on: /quiethours demo").
+    const threadContext = session.isDemo
+      ? { messages: buildHeuristicContextFromScript().messages, source: 'demo-script' }
+      : reconstructThreadContext(session, observed);
 
     // 1. Who is the rested backup? (MCP → PagerDuty, mock when no token.)
     const oncall = await mcp.getOncall(config.pagerDutyScheduleId || undefined);

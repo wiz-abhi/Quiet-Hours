@@ -241,8 +241,12 @@ function evaluateChannel(channelId, { onTrigger, ledger, config, client }) {
         /* context enrichment is best-effort */
       }
     })();
-  } else if (active) {
+  } else if (active && !active.isDemo) {
     // Keep the active session's live counters fresh from the latest verdict.
+    // Demo sessions are excluded: their counters come from the scripted
+    // incident's own timeline (soloMinutes 185 etc.); refreshing them from the
+    // live buffer would clobber them with "3 min ago" wall-clock values and
+    // make the morning Canvas internally inconsistent.
     ledger.updateSession(active.id, {
       soloMinutes: verdict.observed.soloMinutes,
       messageCount: verdict.observed.messageCount,

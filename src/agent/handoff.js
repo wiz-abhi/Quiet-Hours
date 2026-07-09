@@ -51,11 +51,23 @@ function firstHumanMessage(threadContext) {
  * @returns {string} A ready-to-post handoff note.
  */
 export function templatedHandoffNote(threadContext, observed) {
+  const messages = threadContext?.messages || [];
   const first = firstHumanMessage(threadContext);
   const opening =
     (first && first.text && first.text.trim()) ||
     (observed && observed.firstMessageText) ||
     'an incident I have been working solo';
+
+  // Prefer the most informative status line for "what I've tried": an explicit
+  // root-cause writeup if one exists, else the longest recent human message.
+  const humans = messages.filter((m) => m && !m.isBot && m.text && m.text.trim());
+  const rootCause = [...humans]
+    .reverse()
+    .find((m) => /root cause|rolled back|rollback|fix:/i.test(m.text));
+  const substantive = [...humans]
+    .reverse()
+    .find((m) => m.text.trim().length > 60);
+  const status = (rootCause || substantive)?.text?.trim();
 
   const msgCount =
     observed?.messageCount ??
@@ -69,8 +81,10 @@ export function templatedHandoffNote(threadContext, observed) {
 
   return [
     `Handing this off — I've been on it ${soloPhrase} (${msgCount} messages) and I need to sleep.`,
-    `What's going on: ${opening}`,
-    `What I've tried: I've been digging through this alone; the thread above has the full trail of what I checked and ruled out.`,
+    `How it started: ${opening}`,
+    status
+      ? `Where it stands: ${status}`
+      : `What I've tried: I've been digging through this alone; the thread above has the full trail of what I checked and ruled out.`,
     `Over to you — ping me in the morning if something's on fire, otherwise let me rest. Be kind to yourself on this one; it's a gnarly one to pick up cold.`,
   ].join('\n');
 }

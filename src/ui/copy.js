@@ -63,9 +63,17 @@ export const copy = {
     return { label: 'Messages you sent', value: `${n} message${n === 1 ? '' : 's'}` };
   },
   fieldNoReply(observed) {
+    // Honesty guard: the heuristic only surfaces `soloMinutes` (the length of
+    // the solo run, first message → now) on `observed`. It does NOT surface the
+    // gap since another human last replied (heuristic computes `soloGapMin` but
+    // never places it on `observed`). So we must NOT assert a "no one else has
+    // replied in N" gap here — that number isn't observed. We frame this field
+    // as the span of the solo stretch, which is exactly what soloMinutes is.
+    // If soloGapMin is later added to `observed`, switch to it and restore the
+    // "no one else has replied in …" wording.
     return {
-      label: 'Quietest stretch',
-      value: `no one else has replied in ${humanMinutes(observed.soloMinutes)}`,
+      label: 'Solo stretch',
+      value: `you've had this to yourself for ${humanMinutes(observed.soloMinutes)}`,
     };
   },
   fieldLocalTime(observed) {

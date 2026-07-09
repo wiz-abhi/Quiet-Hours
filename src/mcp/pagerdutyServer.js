@@ -122,12 +122,19 @@ async function getOncall(args = {}) {
       return { ...MOCK_ONCALL, note: 'no on-call found; using mock' };
     }
 
+    // Honesty guarantee: this is a real (non-mock) query, so we must NOT
+    // substitute a fabricated backup. When the schedule has only the current
+    // person on call (common for a small rotation), no distinct backup exists —
+    // return `backup: null` and a note. Callers must never name or page a made-
+    // up user; the intervention engine already degrades to a generic
+    // "your backup" when backup is null.
     return {
       mock: false,
       current: { id: current.id, name: current.summary, email: current.email },
       backup: backup
         ? { id: backup.id, name: backup.summary, email: backup.email }
-        : MOCK_ONCALL.backup,
+        : null,
+      ...(backup ? {} : { note: 'no distinct backup on call; not fabricating one' }),
     };
   } catch (err) {
     return { ...MOCK_ONCALL, note: `error: ${err.message}; using mock` };

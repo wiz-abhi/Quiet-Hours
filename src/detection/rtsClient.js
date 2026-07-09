@@ -3,13 +3,21 @@
  * @file src/detection/rtsClient.js
  * Fetch recent channel context for detection.
  *
- * Prefers Slack's Real-Time Search (search.messages) so we can pull the most
- * recent activity for a channel in one shot; falls back to
- * conversations.history / conversations.replies when search is unavailable
- * (missing scope, non-Enterprise workspace, transient error, etc.).
+ * Primary RTS path: Slack's Real-Time Search API (`assistant.search.context`,
+ * GA 2026-02-17). With a bot token, every RTS call requires a short-lived
+ * `action_token` captured from a triggering event payload — the watcher
+ * captures these from message events and hands them to us. Bot tokens can only
+ * RTS-search PUBLIC channel content (`search:read.public`).
+ *
+ * Fallback path: conversations.history / conversations.replies — always
+ * available with our `channels:history` scope, and the right tool for "give me
+ * the last N messages in this channel" when no fresh action token is in hand.
  *
  * Both paths are normalized into the same message shape so the heuristic never
  * has to care where the data came from.
+ *
+ * See docs/RTS_VERIFICATION.md for the full API verification (methods, scopes,
+ * action_token lifecycle, response shapes).
  *
  * @typedef {Object} NormalizedMessage
  * @property {string} userId
@@ -23,8 +31,8 @@
  */
 
 /**
- * Normalize a raw Slack message object into our shape. Defensive about the
- * many optional fields Slack may or may not include.
+ * Normalize a raw Slack message object (conversations.history/replies shape).
+ * Defensive about the many optional fields Slack may or may not include.
  * @param {any} msg
  * @returns {NormalizedMessage}
  */
@@ -39,50 +47,74 @@ function normalizeMessage(msg) {
 }
 
 /**
+ * Normalize an RTS (`assistant.search.context`) message result. RTS uses
+ * different field names than conversations.history: `message_ts` / `content` /
+ * `is_author_bot` / `author_user_id`.
+ * @param {any} m
+ * @returns {NormalizedMessage}
+ */
+function normalizeRtsMessage(m) {
+  return {
+    userId: m?.author_user_id || 'unknown',
+    ts:
+      typeof m?.message_ts === 'string'
+        ? m.message_ts
+        : String(m?.message_ts ?? ''),
+    isBot: Boolean(m?.is_author_bot),
+    text: typeof m?.content === 'string' ? m.content : '',
+  };
+}
+
+/**
  * Fetch recent context for a channel (optionally a thread).
  *
  * @param {any} client  A Slack WebClient (app.client).
  * @param {string} channelId
- * @param {{ limit?: number, threadTs?: string|null }} [opts]
+ * @param {{ limit?: number, threadTs?: string|null, actionToken?: string|null }} [opts]
+ *   `actionToken` — a fresh, short-lived RTS action token captured from an
+ *   event payload. Required for bot-token RTS calls; when absent we go
+ *   straight to the history path.
  * @returns {Promise<ThreadContext>}
  */
 export async function fetchThreadContext(
   client,
   channelId,
-  { limit = 100, threadTs = null } = {}
+  { limit = 100, threadTs = null, actionToken = null } = {}
 ) {
-  // --- Attempt 1: Real-Time Search (search.messages) scoped to the channel. ---
-  try {
-    const result = await client.apiCall('search.messages', {
-      // Scope the query to the channel; sort newest first.
-      query: `in:<#${channelId}>`,
-      count: limit,
-      sort: 'timestamp',
-      sort_dir: 'desc',
-    });
+  // --- Attempt 1: RTS (assistant.search.context) — only when we hold a fresh
+  //     action_token, since a bot token requires one. Public channels only. ---
+  if (actionToken) {
+    try {
+      const result = await client.apiCall('assistant.search.context', {
+        query: `in:<#${channelId}>`,
+        action_token: actionToken,
+        channel_types: 'public_channel',
+        content_types: 'messages',
+        sort: 'timestamp',
+        limit: Math.min(limit, 20), // RTS hard-caps at 20 per page
+        include_bots: true,
+      });
 
-    if (result && result.ok) {
-      const matches = result?.messages?.matches;
-      if (Array.isArray(matches) && matches.length > 0) {
-        const messages = matches.map(normalizeMessage);
+      const matches = result?.messages || result?.results?.messages;
+      if (result?.ok && Array.isArray(matches) && matches.length > 0) {
+        const messages = matches.map(normalizeRtsMessage);
         console.log(
-          `[rtsClient] Using source=rts (search.messages) for channel ${channelId}: ${messages.length} messages.`
+          `[rtsClient] Using source=rts (assistant.search.context) for channel ${channelId}: ${messages.length} messages.`
         );
         return { messages, source: 'rts' };
       }
+      console.log(
+        `[rtsClient] assistant.search.context returned no usable matches for ${channelId}; falling back to history.`
+      );
+    } catch (err) {
+      const msg = err?.data?.error || err?.message || String(err);
+      console.log(
+        `[rtsClient] assistant.search.context failed for ${channelId} (${msg}); falling back to history.`
+      );
     }
-    // ok:false or no matches — fall through to history.
-    console.log(
-      `[rtsClient] search.messages returned no usable matches for channel ${channelId}; falling back to history.`
-    );
-  } catch (err) {
-    const msg = err && err.message ? err.message : String(err);
-    console.log(
-      `[rtsClient] search.messages failed for channel ${channelId} (${msg}); falling back to history.`
-    );
   }
 
-  // --- Attempt 2: conversations.history / conversations.replies. ---
+  // --- Attempt 2 (primary when no fresh token): conversations.history/replies. ---
   try {
     let raw;
     if (threadTs) {

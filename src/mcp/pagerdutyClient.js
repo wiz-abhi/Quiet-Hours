@@ -17,11 +17,19 @@
 // installed version differs, verify against the SDK's `dist/esm` layout after
 // `npm install` — the client/index.js and client/stdio.js subpaths are stable
 // across the 1.x line but may need adjustment on a major bump.
+import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
-/** Path (relative to cwd) to the MCP server entrypoint. */
-const SERVER_ARGS = ['src/mcp/pagerdutyServer.js'];
+/**
+ * Absolute path to the MCP server entrypoint, resolved from THIS module — not
+ * from the process cwd. StdioClientTransport spawns the child with the parent's
+ * cwd (it never sets `cwd` here), so a cwd-relative path breaks the moment the
+ * app is launched from any directory other than the repo root: the child exits
+ * MODULE_NOT_FOUND and every tool call throws `Connection closed`. Resolving
+ * absolutely keeps the spawn working regardless of where the app was started.
+ */
+const SERVER_ARGS = [fileURLToPath(new URL('./pagerdutyServer.js', import.meta.url))];
 
 /**
  * Module-level guard: chain calls so we never run two stdio servers at once.
@@ -48,11 +56,54 @@ function parseToolResult(result) {
 }
 
 /**
+ * Build a labeled mock result for a tool when the MCP server can't be reached
+ * (spawn/transport failure). Mirrors the server's own mock shapes so callers
+ * that read `.backup` / `.incidentId` still get a usable object and the handoff
+ * degrades gracefully instead of aborting.
+ *
+ * @param {string} toolName - Tool that failed (`get_oncall` | `page_backup`).
+ * @param {Record<string, unknown>} toolArgs - The attempted tool arguments.
+ * @param {string} reason - Human-readable failure reason.
+ * @returns {object} A `{ mock:true, ... }` fallback matching the tool's shape.
+ */
+function mockFallback(toolName, toolArgs, reason) {
+  if (toolName === 'page_backup') {
+    return {
+      mock: true,
+      incidentId: 'PQMOCK1',
+      assignedTo: toolArgs?.userId,
+      note: toolArgs?.contextNote,
+      transportError: reason,
+    };
+  }
+  // Default to the on-call shape (current + backup) for get_oncall / unknown.
+  return {
+    mock: true,
+    current: {
+      id: 'PABC123',
+      name: 'Priya Sharma',
+      email: 'priya.sharma@example.com',
+    },
+    backup: {
+      id: 'PXYZ789',
+      name: 'Marcus Lee',
+      email: 'marcus.lee@example.com',
+    },
+    transportError: reason,
+  };
+}
+
+/**
  * Connect to the server, invoke one tool, parse, and disconnect.
+ *
+ * Never throws: if the server can't be spawned or the transport dies, this
+ * returns a labeled `{ mock:true, ... }` fallback so the handoff still
+ * completes (a backup is still named and paged in mock) rather than aborting
+ * silently in the caller.
  *
  * @param {string} toolName - Tool to call (`get_oncall` | `page_backup`).
  * @param {Record<string, unknown>} toolArgs - Tool arguments.
- * @returns {Promise<object>} Parsed tool result.
+ * @returns {Promise<object>} Parsed tool result (may be `{ mock:true, ... }`).
  */
 async function callTool(toolName, toolArgs) {
   const transport = new StdioClientTransport({
@@ -74,6 +125,11 @@ async function callTool(toolName, toolArgs) {
       arguments: toolArgs,
     });
     return parseToolResult(result);
+  } catch (err) {
+    // Spawn/transport failure (e.g. server exited, connection closed). Degrade
+    // to a labeled mock so the handoff still lands instead of throwing up to
+    // the action handler, where it would die silently on camera.
+    return mockFallback(toolName, toolArgs, err?.message || String(err));
   } finally {
     // Always tear down, even if the call threw.
     try {

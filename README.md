@@ -118,12 +118,12 @@ This seeds a scripted late-night incident and walks the whole flow end to end: d
 
 ## The honesty principle
 
-Every number Quiet Hours shows a human is **observed**, never estimated, inferred, or invented. The DM says "42 messages, 3 hours solo, 01:12 your time" because those are counts from the channel — not a wellness score, not a "burnout risk," not a diagnosis. The morning Canvas is assembled *only* from ledger facts recorded during the incident. If Quiet Hours can't observe it, it doesn't say it. This is what keeps the agent honest and non-paternalistic: it presents reality and lets the human decide.
+Every number Quiet Hours shows a human is **observed**, never estimated, inferred, or invented. The DM says "42 messages, 3 hours solo, 01:00 your local time" because those are counts and clock-readings from the channel — not a wellness score, not a "burnout risk," not a diagnosis. The morning Canvas is assembled *only* from ledger facts recorded during the incident. If Quiet Hours can't observe it, it doesn't say it. This is what keeps the agent honest and non-paternalistic: it presents reality and lets the human decide.
 
 ## Judges: how to evaluate in 3 minutes
 
 > 1. **See detection (RTS):** run `/quiethours demo`. The heuristic fires on scripted RTS context; watch the trigger log name all four signals.
-> 2. **See the intervention (Slack AI):** the DM arrives with observed facts and buttons. Click **Get me a backup**.
+> 2. **See the intervention (Slack AI):** the DM arrives with observed facts and buttons. Click **Hand off & sleep**.
 > 3. **See the handoff (MCP):** `get_oncall` finds a rested backup, Claude drafts the handoff note, `page_backup` pages them — all via the PagerDuty MCP server.
 > 4. **See the payoff (Slack AI):** the morning Canvas is posted, built only from observed data.
 >

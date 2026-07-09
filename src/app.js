@@ -18,7 +18,7 @@ import { copy } from './ui/copy.js';
 import * as mcp from './mcp/pagerdutyClient.js';
 import * as agent from './agent/handoff.js';
 import { makeInterventionEngine } from './agent/interventionEngine.js';
-import { registerWatcher } from './detection/watcher.js';
+import { registerWatcher, getActionToken } from './detection/watcher.js';
 import { evaluate } from './detection/heuristic.js';
 import { fetchThreadContext } from './detection/rtsClient.js';
 import { seedDemo, buildHeuristicContextFromScript } from './demo/seed.js';
@@ -111,6 +111,13 @@ app.command('/quiethours', async ({ command, ack, respond, client, logger }) => 
           if (stale) ledger.endSession(stale.id, { status: 'resolved' });
 
           const o = verdict.observed;
+          // The seeded incident's bot pings really happened — count them. This
+          // count is deterministic (the script has a fixed number of bot pings);
+          // we tag the session as a demo and stash the count so the morning
+          // handler can restore it even if the live watcher (active under
+          // `/quiethours watch`) absorbs the seeded bot echoes into the session
+          // afterwards and inflates pingsSilenced above the deterministic value.
+          const demoPingCount = summary?.botCount || 0;
           const session = ledger.createSession({
             channelId,
             userId,
@@ -120,9 +127,10 @@ app.command('/quiethours', async ({ command, ack, respond, client, logger }) => 
             messageCount: o.messageCount,
             firstMessageText: o.firstMessageText,
             localHour: o.localHour,
-            // The seeded incident's bot pings really happened — count them.
+            isDemo: true,
+            demoPingCount,
             pingsSilenced: Array.from(
-              { length: summary?.botCount || 0 },
+              { length: demoPingCount },
               (_, i) => `demo_ping_${i + 1}`,
             ),
           });
@@ -132,19 +140,43 @@ app.command('/quiethours', async ({ command, ack, respond, client, logger }) => 
       }
 
       case 'morning': {
+        // listRecentSessions returns newest-first; keep that order for the channel.
         const recent = ledger.listRecentSessions
           ? ledger.listRecentSessions(50).filter((s) => s.channelId === channelId)
           : [];
-        const handed =
-          recent.find((s) => s.status === 'handed_off') || recent[0];
-        if (!handed) {
+        // Prefer the most recent session so the Canvas always reflects the run
+        // the judge just performed. Only fall back to an older handed_off session
+        // when the newest one lacks handoff data (e.g. a fresh demo whose DM was
+        // re-shot without tapping "Hand off & sleep").
+        const newest = recent[0];
+        const session =
+          newest && newest.status === 'handed_off'
+            ? newest
+            : recent.find((s) => s.status === 'handed_off') || newest;
+        if (!session) {
           await respond({
             response_type: 'ephemeral',
             text: 'No incident found for this channel yet. Try `/quiethours demo` first.',
           });
           break;
         }
-        await engine.postMorningCanvas({ client, session: handed });
+        // Demo sessions carry a deterministic ping count; restore it before
+        // rendering so the live watcher's absorption of the seeded bot echoes
+        // never inflates the on-screen "Pings held quiet" number.
+        if (session.isDemo && typeof session.demoPingCount === 'number') {
+          const want = Array.from(
+            { length: session.demoPingCount },
+            (_, i) => `demo_ping_${i + 1}`,
+          );
+          if (
+            !Array.isArray(session.pingsSilenced) ||
+            session.pingsSilenced.length !== want.length
+          ) {
+            session.pingsSilenced = want;
+            ledger.updateSession(session.id, { pingsSilenced: want });
+          }
+        }
+        await engine.postMorningCanvas({ client, session });
         break;
       }
 
@@ -162,6 +194,7 @@ app.command('/quiethours', async ({ command, ack, respond, client, logger }) => 
       case 'test': {
         const threadContext = await fetchThreadContext(client, channelId, {
           limit: 50,
+          actionToken: getActionToken(channelId),
         });
         const result = evaluate({
           messages: threadContext?.messages ?? [],
@@ -170,9 +203,10 @@ app.command('/quiethours', async ({ command, ack, respond, client, logger }) => 
         });
         await respond({
           response_type: 'ephemeral',
-          text: `🧪 Detection test — triggered: *${result.triggered}*\nReasons: ${
-            (result.reasons ?? []).join(', ') || 'none'
-          }`,
+          text:
+            `🧪 Detection test — triggered: *${result.triggered}* · context source: *${
+              threadContext?.source ?? 'unknown'
+            }*\nReasons: ${(result.reasons ?? []).join(', ') || 'none'}`,
         });
         break;
       }
@@ -229,7 +263,9 @@ app.action('qh_snooze', async ({ ack, body, client, logger }) => {
 
 app.event('app_home_opened', async ({ event, client, logger }) => {
   try {
-    const view = appHome.buildAppHome({
+    // buildAppHome returns a bare Block[]; views.publish requires a full view
+    // object, so wrap it as a Home view here.
+    const blocks = appHome.buildAppHome({
       userId: event.user,
       optedIn: optedInUsers.has(event.user),
       watchedChannels: config.watchedChannels,
@@ -237,7 +273,10 @@ app.event('app_home_opened', async ({ event, client, logger }) => {
         ? ledger.listRecentSessions()
         : [],
     });
-    await client.views.publish({ user_id: event.user, view });
+    await client.views.publish({
+      user_id: event.user,
+      view: { type: 'home', blocks },
+    });
   } catch (error) {
     logger.error('app_home_opened failed', error);
   }

@@ -16,11 +16,18 @@ function timeOrNull(ms) {
 }
 
 /**
- * Best-effort display name from a session. Falls back to the user id.
+ * Best-effort display name for the Canvas title.
+ *
+ * Prefers a resolved `userName`. When only a raw Slack user id is available we
+ * emit it as a `<@id>` mention (like appHome.js) so Slack resolves it to the
+ * person's real name in the posted message — never a bare, robotic-looking id.
  * @param {import('../types').IncidentSession} session
+ * @returns {string}
  */
 function displayName(session) {
-  return session.userName || session.userId || 'your teammate';
+  if (session.userName) return session.userName;
+  if (session.userId) return `<@${session.userId}>`;
+  return 'your teammate';
 }
 
 /**

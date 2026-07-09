@@ -37,7 +37,7 @@
         "groups:history",
         "im:history",
         "im:write",
-        "search:read",
+        "search:read.public",
         "users:read"
       ]
     }

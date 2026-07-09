@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Quiet Hours — Architecture</title>
+<style>
+  :root {
+    --bg: #0a0e17;
+    --bg2: #0e1420;
+    --ink: #e8edf6;
+    --muted: #8b98af;
+    --line: #263247;
+    --card: #131a28;
+    --card2: #172033;
+    --slack: #611f69;
+    --slack-ink: #d9a7de;
+    --rts: #2eb67d;
+    --mcp: #ecb22e;
+    --ai: #36c5f0;
+    --claude: #d97757;
+    --ledger: #6f7dff;
+    --glow: rgba(54,197,240,.10);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: radial-gradient(1200px 700px at 78% -8%, #16233a 0%, var(--bg) 55%) fixed;
+    color: var(--ink);
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  .stage {
+    width: 1600px;
+    height: 900px;
+    margin: 0 auto;
+    position: relative;
+    padding: 34px 44px 30px;
+    overflow: hidden;
+  }
+
+  /* ---- Header ---- */
+  .head { display: flex; align-items: flex-end; justify-content: space-between; }
+  .brand { display: flex; align-items: center; gap: 14px; }
+  .moon {
+    width: 40px; height: 40px; border-radius: 50%;
+    background: radial-gradient(circle at 34% 32%, #f4f7ff 0%, #cfd8ee 42%, #9aa8cc 100%);
+    box-shadow: 0 0 26px rgba(180,200,255,.35), inset -8px -8px 14px rgba(40,54,86,.55);
+    position: relative;
+  }
+  .moon::after {
+    content:""; position:absolute; top:8px; left:16px; width:9px; height:9px;
+    border-radius:50%; background:rgba(120,140,180,.35); box-shadow: 6px 12px 0 -3px rgba(120,140,180,.28), -3px 16px 0 -4px rgba(120,140,180,.22);
+  }
+  h1 { font-size: 27px; font-weight: 700; letter-spacing: -.4px; }
+  h1 span { color: var(--muted); font-weight: 500; }
+  .tag { color: var(--muted); font-size: 13.5px; margin-top: 4px; letter-spacing:.2px; }
+  .req-badges { display:flex; gap: 10px; }
+  .req {
+    font-size: 12px; font-weight: 700; letter-spacing:.4px;
+    padding: 7px 13px; border-radius: 999px; border: 1px solid transparent;
+    display:flex; align-items:center; gap:7px;
+  }
+  .req i { width:8px; height:8px; border-radius:50%; display:inline-block; }
+  .req.rts { background: rgba(46,182,125,.10); border-color: rgba(46,182,125,.45); color:#7ff0bf; }
+  .req.rts i { background: var(--rts); }
+  .req.mcp { background: rgba(236,178,46,.10); border-color: rgba(236,178,46,.45); color:#f6d488; }
+  .req.mcp i { background: var(--mcp); }
+  .req.ai  { background: rgba(54,197,240,.10); border-color: rgba(54,197,240,.45); color:#a8e5fb; }
+  .req.ai i { background: var(--ai); }
+
+  /* ---- SVG wires under everything ---- */
+  .wires { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:1; }
+
+  /* ---- Zones ---- */
+  .zone {
+    position:absolute; border:1px solid var(--line); border-radius:16px;
+    background: linear-gradient(180deg, rgba(255,255,255,.015), rgba(255,255,255,0));
+    z-index:2;
+  }
+  .zone-label {
+    position:absolute; top:-11px; left:18px; font-size:11px; font-weight:700;
+    letter-spacing:1.4px; text-transform:uppercase; padding:2px 10px; border-radius:6px;
+    background: var(--bg); color: var(--muted);
+  }
+  .zone.slack { left:44px; top:150px; width:300px; height:648px; border-color: rgba(97,31,105,.6); background: linear-gradient(180deg, rgba(97,31,105,.10), rgba(97,31,105,.02)); }
+  .zone.slack .zone-label { color: var(--slack-ink); }
+  .zone.app { left:392px; top:150px; width:722px; height:648px; }
+  .zone.app .zone-label { color:#a8e5fb; }
+  .zone.ext { left:1162px; top:150px; width:394px; height:648px; border-color: rgba(217,119,87,.4); background: linear-gradient(180deg, rgba(217,119,87,.06), rgba(217,119,87,.01)); }
+  .zone.ext .zone-label { color:#f0a887; }
+
+  /* ---- Cards ---- */
+  .card {
+    position:absolute; z-index:3; border-radius:12px; padding:12px 14px;
+    background: linear-gradient(180deg, var(--card2), var(--card));
+    border:1px solid var(--line);
+    box-shadow: 0 10px 24px rgba(0,0,0,.35);
+    width: 232px;
+  }
+  .card .k { font-size:10px; letter-spacing:.9px; text-transform:uppercase; color:var(--muted); margin-bottom:4px; font-weight:600; }
+  .card .t { font-size:15px; font-weight:700; letter-spacing:-.2px; }
+  .card .d { font-size:11.5px; color:var(--muted); margin-top:5px; line-height:1.45; }
+  .card .file { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size:10.5px; color:#7f8fb0; margin-top:6px; }
+  .card.slim { padding:10px 12px; }
+
+  .accent-l { border-left:3px solid var(--line); }
+  .a-slack { border-left-color: var(--slack-ink); }
+  .a-rts { border-left-color: var(--rts); }
+  .a-mcp { border-left-color: var(--mcp); }
+  .a-ai { border-left-color: var(--ai); }
+  .a-claude { border-left-color: var(--claude); }
+  .a-ledger { border-left-color: var(--ledger); }
+
+  .chip { display:inline-block; font-size:9.5px; font-weight:700; letter-spacing:.5px; padding:2px 7px; border-radius:5px; margin-top:8px; }
+  .chip.rts { background: rgba(46,182,125,.14); color:#7ff0bf; }
+  .chip.mcp { background: rgba(236,178,46,.14); color:#f6d488; }
+  .chip.ai { background: rgba(54,197,240,.14); color:#a8e5fb; }
+
+  /* Slack surfaces */
+  .surface { position:absolute; z-index:3; left:66px; width:256px; border-radius:11px; padding:11px 13px;
+    background: linear-gradient(180deg, rgba(97,31,105,.22), rgba(97,31,105,.08));
+    border:1px solid rgba(97,31,105,.55); }
+  .surface .t { font-size:14px; font-weight:700; }
+  .surface .d { font-size:11px; color:#c9a9cf; margin-top:3px; line-height:1.4; }
+  .surface .ico { font-size:15px; margin-right:7px; }
+
+  /* signal pills */
+  .signals { position:absolute; z-index:3; left:426px; top:398px; width:300px;
+    display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+  .sig { font-size:10.5px; background: rgba(46,182,125,.07); border:1px solid rgba(46,182,125,.3);
+    border-radius:8px; padding:7px 9px; color:#bfe9d5; line-height:1.3; }
+  .sig b { color:#7ff0bf; }
+
+  /* tool badges on MCP */
+  .tool { font-family: ui-monospace, Consolas, monospace; font-size:10px; color:#f6d488;
+    background: rgba(236,178,46,.10); border:1px solid rgba(236,178,46,.35); border-radius:6px; padding:2px 7px; margin-right:6px; display:inline-block; margin-top:2px;}
+
+  /* footer honesty */
+  .footer { position:absolute; left:44px; bottom:12px; z-index:4; display:flex; align-items:center; gap:11px; }
+  .footer .seal { width:26px; height:26px; border-radius:50%; border:1.5px solid var(--rts);
+    display:flex; align-items:center; justify-content:center; color:var(--rts); font-size:13px; }
+  .footer .txt { font-size:13px; color:#bcd; letter-spacing:.2px; }
+  .footer .txt b { color:#eafff4; }
+  .legend { position:absolute; right:44px; bottom:14px; z-index:4; display:flex; gap:18px; font-size:11px; color:var(--muted); align-items:center;}
+  .legend .li { display:flex; align-items:center; gap:6px; }
+  .legend .sw { width:22px; height:0; border-top:2px solid var(--muted); }
+  .legend .sw.solid { border-top-style:solid; }
+  .legend .sw.dash { border-top-style:dashed; }
+
+  .num { position:absolute; z-index:5; width:19px; height:19px; border-radius:50%;
+    background:#0a0e17; border:1.5px solid var(--ai); color:#a8e5fb; font-size:11px; font-weight:700;
+    display:flex; align-items:center; justify-content:center; }
+</style>
+</head>
+<body>
+<div class="stage">
+
+  <!-- Header -->
+  <div class="head">
+    <div>
+      <div class="brand">
+        <div class="moon"></div>
+        <h1>Quiet Hours <span>· nobody carries the pager alone at 2am</span></h1>
+      </div>
+      <div class="tag">Detects one person firefighting solo late at night in Slack, offers a warm handoff, and pages a rested backup — with consent.</div>
+    </div>
+    <div class="req-badges">
+      <div class="req rts"><i></i>SLACK RTS</div>
+      <div class="req mcp"><i></i>MCP SERVER</div>
+      <div class="req ai"><i></i>SLACK AI</div>
+    </div>
+  </div>
+
+  <!-- ================= WIRES ================= -->
+  <svg class="wires" viewBox="0 0 1600 900" preserveAspectRatio="none">
+    <defs>
+      <marker id="ah" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+        <path d="M0,0 L9,4.5 L0,9 Z" fill="#5c6b86"/>
+      </marker>
+      <marker id="ah-ai" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+        <path d="M0,0 L9,4.5 L0,9 Z" fill="#36c5f0"/>
+      </marker>
+      <marker id="ah-mcp" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+        <path d="M0,0 L9,4.5 L0,9 Z" fill="#ecb22e"/>
+      </marker>
+      <marker id="ah-rts" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+        <path d="M0,0 L9,4.5 L0,9 Z" fill="#2eb67d"/>
+      </marker>
+    </defs>
+
+    <!-- Channel -> RTS client (detection in) -->
+    <path d="M322,232 C360,232 378,300 424,300" fill="none" stroke="#2eb67d" stroke-width="2.2" marker-end="url(#ah-rts)"/>
+    <!-- RTS -> watcher -->
+    <path d="M656,300 L688,300" fill="none" stroke="#5c6b86" stroke-width="2" marker-end="url(#ah)"/>
+    <!-- watcher -> heuristic (down) -->
+    <path d="M770,332 L770,384" fill="none" stroke="#5c6b86" stroke-width="2" marker-end="url(#ah)"/>
+    <!-- heuristic -> engine (signals pass) -->
+    <path d="M726,470 C750,470 640,556 660,556" fill="none" stroke="#5c6b86" stroke-width="2" marker-end="url(#ah)"/>
+
+    <!-- engine -> DM surface -->
+    <path d="M426,588 C384,588 372,472 322,472" fill="none" stroke="#36c5f0" stroke-width="2.2" marker-end="url(#ah-ai)"/>
+    <!-- DM buttons -> engine (consent, back) -->
+    <path d="M322,506 C372,520 384,600 424,600" fill="none" stroke="#36c5f0" stroke-width="1.6" stroke-dasharray="5 5" marker-end="url(#ah-ai)"/>
+
+    <!-- engine -> Claude -->
+    <path d="M892,566 C1040,566 1060,300 1186,300" fill="none" stroke="#d97757" stroke-width="2.2" marker-end="url(#ah)"/>
+    <!-- engine -> MCP client -->
+    <path d="M892,600 L928,600" fill="none" stroke="#ecb22e" stroke-width="2" marker-end="url(#ah-mcp)"/>
+    <!-- MCP client <-> MCP server (stdio) -->
+    <path d="M1094,600 C1140,600 1150,600 1186,600" fill="none" stroke="#ecb22e" stroke-width="2.4" marker-end="url(#ah-mcp)"/>
+    <path d="M1186,616 C1150,626 1140,626 1096,626" fill="none" stroke="#ecb22e" stroke-width="1.5" stroke-dasharray="5 5" marker-end="url(#ah-mcp)"/>
+    <!-- MCP server <-> PagerDuty API -->
+    <path d="M1370,668 L1370,706" fill="none" stroke="#ecb22e" stroke-width="2" marker-end="url(#ah-mcp)"/>
+
+    <!-- engine <-> ledger -->
+    <path d="M700,644 L700,690" fill="none" stroke="#6f7dff" stroke-width="2" marker-end="url(#ah)"/>
+    <path d="M726,690 L726,646" fill="none" stroke="#6f7dff" stroke-width="1.4" stroke-dasharray="5 5" marker-end="url(#ah)"/>
+
+    <!-- ledger -> canvas builder -> canvas surface -->
+    <path d="M540,712 C470,712 470,712 470,712" fill="none" stroke="#6f7dff" stroke-width="0"/>
+    <!-- engine -> canvas surface (morning) -->
+    <path d="M426,724 C380,724 372,712 322,712" fill="none" stroke="#36c5f0" stroke-width="2.2" marker-end="url(#ah-ai)"/>
+  </svg>
+
+  <!-- ================= ZONES ================= -->
+  <div class="zone slack"><div class="zone-label">Slack Workspace</div></div>
+  <div class="zone app"><div class="zone-label">Bolt App · Socket Mode · src/app.js</div></div>
+  <div class="zone ext"><div class="zone-label">External Services</div></div>
+
+  <!-- ===== Slack surfaces ===== -->
+  <div class="surface" style="top:196px;"><div class="t"><span class="ico">#</span>Watched Channel</div><div class="d">Live incident traffic — the raw signal Quiet Hours watches.</div></div>
+  <div class="surface" style="top:436px;"><div class="t"><span class="ico">✉️</span>DM / Assistant</div><div class="d">Warm intervention with Block Kit buttons: hand off · keep going · snooze.</div></div>
+  <div class="surface" style="top:676px;"><div class="t"><span class="ico">🗒️</span>Morning Canvas</div><div class="d">A “thank-you” recap posted the next morning — observed data only.</div></div>
+
+  <!-- ===== App cards ===== -->
+  <div class="card slim accent-l a-rts" style="left:426px; top:270px;">
+    <div class="k">Detection · in</div>
+    <div class="t">rtsClient.js</div>
+    <div class="d">Pulls live, cross-message context: who spoke, how recently, message rate.</div>
+    <div class="chip rts">RTS · permission-aware context</div>
+  </div>
+
+  <div class="card slim" style="left:688px; top:270px;">
+    <div class="k">Detection</div>
+    <div class="t">watcher.js</div>
+    <div class="d">Maintains the rolling channel buffer; feeds each window to the heuristic.</div>
+  </div>
+
+  <div class="card" style="left:688px; top:388px; width:232px;">
+    <div class="k">Detection · pure</div>
+    <div class="t">4-signal heuristic</div>
+    <div class="d">Transparent, testable. Triggers only when all four observed signals pass.</div>
+    <div class="file">detection/heuristic.js</div>
+  </div>
+
+  <!-- signal pills -->
+  <div class="signals">
+    <div class="sig"><b>①</b> ≥30 solo msgs in window</div>
+    <div class="sig"><b>②</b> no other human ≥60 min</div>
+    <div class="sig"><b>③</b> ≥23:00 local <i>or</i> ≥3h on</div>
+    <div class="sig"><b>④</b> user opted in</div>
+  </div>
+
+  <div class="card accent-l a-ai" style="left:426px; top:548px; width:262px;">
+    <div class="k">Agent · orchestrator</div>
+    <div class="t">Intervention Engine</div>
+    <div class="d">The seam: on trigger sends the DM; on consent drafts the note, pages backup, records, and builds the Canvas.</div>
+    <div class="file">agent/interventionEngine.js</div>
+  </div>
+
+  <div class="card slim a-ai accent-l" style="left:708px; top:556px; width:180px;">
+    <div class="k">Slack AI · UI</div>
+    <div class="t">Block Kit + Canvas</div>
+    <div class="d">dmBlocks · canvas · appHome · copy</div>
+    <div class="chip ai">SLACK AI SURFACE</div>
+  </div>
+
+  <div class="card slim a-mcp accent-l" style="left:928px; top:566px; width:166px;">
+    <div class="k">MCP · client</div>
+    <div class="t">pagerdutyClient.js</div>
+    <div class="d">Standard MCP client over stdio.</div>
+  </div>
+
+  <div class="card slim a-ledger accent-l" style="left:540px; top:686px; width:186px;">
+    <div class="k">Observed-data ledger</div>
+    <div class="t">JSON IncidentSession</div>
+    <div class="d">Only observed facts persisted — the source of truth for the Canvas.</div>
+    <div class="file">ledger/ledger.js · ledger.json</div>
+  </div>
+
+  <!-- ===== External cards ===== -->
+  <div class="card accent-l a-claude" style="left:1186px; top:262px; width:340px;">
+    <div class="k">Slack AI · drafting</div>
+    <div class="t">Claude — handoff note</div>
+    <div class="d">Writes the handoff in the tired responder’s voice, from observed thread context only. Deterministic fallback if offline.</div>
+    <div class="file">claude-sonnet · agent/handoff.js</div>
+  </div>
+
+  <div class="card accent-l a-mcp" style="left:1186px; top:556px; width:340px;">
+    <div class="k">MCP Server · over stdio</div>
+    <div class="t">pagerdutyServer.js</div>
+    <div class="d">The actuator. Two real tools the engine calls to resolve the incident:</div>
+    <div style="margin-top:8px;">
+      <span class="tool">get_oncall</span>
+      <span class="tool">page_backup</span>
+    </div>
+    <div class="chip mcp">MCP · turns consent into a real page</div>
+  </div>
+
+  <div class="card slim" style="left:1276px; top:716px; width:160px;">
+    <div class="k">External API</div>
+    <div class="t">PagerDuty</div>
+    <div class="d">Live on-call schedule + paging (mock when no token).</div>
+  </div>
+
+  <!-- flow numbers -->
+  <div class="num" style="left:352px; top:224px;">1</div>
+  <div class="num" style="left:770px; top:352px;">2</div>
+  <div class="num" style="left:404px; top:456px;">3</div>
+  <div class="num" style="left:1120px; top:280px;">4</div>
+  <div class="num" style="left:1128px; top:584px;">5</div>
+  <div class="num" style="left:690px; top:664px;">6</div>
+  <div class="num" style="left:352px; top:696px;">7</div>
+
+  <!-- footer -->
+  <div class="footer">
+    <div class="seal">✓</div>
+    <div class="txt"><b>Honesty guarantee:</b> Every number shown to users is observed in Slack. No inferred scores, no derived state.</div>
+  </div>
+  <div class="legend">
+    <div class="li"><span class="sw solid" style="border-color:#2eb67d;"></span>detect (RTS)</div>
+    <div class="li"><span class="sw solid" style="border-color:#36c5f0;"></span>Slack AI</div>
+    <div class="li"><span class="sw solid" style="border-color:#ecb22e;"></span>MCP / stdio</div>
+    <div class="li"><span class="sw dash" style="border-color:#8b98af;"></span>return path</div>
+  </div>
+
+</div>
+</body>
+</html>

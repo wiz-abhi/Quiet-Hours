@@ -202,11 +202,22 @@ export function makeInterventionEngine({ ledger, ui, mcp, agent, config }) {
     );
   }
 
-  /** The person chose to stay on. Respect it; leave the door open. */
+  /**
+   * The person chose to stay on. Respect it; leave the door open.
+   *
+   * We must CLOSE this session (stamp endedAt) rather than just flip the status,
+   * otherwise getActiveSessionForChannel keeps returning it as active and the
+   * watcher's `!active` guard permanently suppresses every future intervention
+   * for this channel. A genuinely new lone-firefighter incident later on should
+   * be able to trigger a fresh nudge, so this session must not linger as active.
+   */
   async function handleKeepGoing({ client, sessionId, userId }) {
     const session = ledger.getSession(sessionId);
     if (session) {
-      ledger.updateSession(sessionId, { status: 'watching' });
+      // status stays 'watching' for the record, but endedAt closes it so the
+      // channel is re-armable. getActiveSessionForChannel excludes any session
+      // with endedAt !== null, so this no longer blocks new triggers.
+      ledger.updateSession(sessionId, { status: 'watching', endedAt: Date.now() });
     }
     const target = userId || session?.userId;
     if (target) {
@@ -214,9 +225,33 @@ export function makeInterventionEngine({ ledger, ui, mcp, agent, config }) {
     }
   }
 
-  /** The person snoozed the nudge. Acknowledge warmly. */
+  /**
+   * The person snoozed the nudge. Acknowledge warmly, and — crucially — do not
+   * leave the session permanently active.
+   *
+   * We record a snoozeUntil deadline and close the session (stamp endedAt) so it
+   * stops counting as active in getActiveSessionForChannel. Once closed, the
+   * next detection pass (on a new message or the periodic sweep) is free to open
+   * a fresh session and re-send the DM if the person is still alone — which is
+   * exactly the "check back in ~30 min" the ack promises. Without stamping
+   * endedAt the session would stay active forever and block all future triggers
+   * for the channel, identical to the 'Keep going' defect.
+   *
+   * NOTE: honoring the snoozeUntil as a strict ~30-minute floor (i.e. holding
+   * off the re-nudge until now >= snoozeUntil, rather than re-triggering as soon
+   * as the pattern re-crosses the threshold) would require a small change in
+   * src/detection/watcher.js's evaluateChannel to consult snoozeUntil. That is
+   * out of scope for this file; snoozeUntil is persisted here so that logic can
+   * be added without another data-model change.
+   */
   async function handleSnooze({ client, sessionId, userId }) {
     const session = ledger.getSession(sessionId);
+    if (session) {
+      ledger.updateSession(sessionId, {
+        snoozeUntil: Date.now() + SNOOZE_MINUTES * 60000,
+        endedAt: Date.now(),
+      });
+    }
     const target = userId || session?.userId;
     if (target) {
       await dmUser(client, target, { text: copy.snoozeAck(SNOOZE_MINUTES) });

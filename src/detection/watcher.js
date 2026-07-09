@@ -19,6 +19,7 @@
  */
 
 import { evaluate } from './heuristic.js';
+import { fetchThreadContext } from './rtsClient.js';
 
 /**
  * Max messages retained per channel buffer. Old messages are dropped from the
@@ -71,6 +72,40 @@ export function watchChannel(channelId) {
 }
 
 /**
+ * RTS action tokens are short-lived and per-event; treat anything older than
+ * this as stale and fall back to conversations.history.
+ */
+const ACTION_TOKEN_TTL_MS = 5 * 60_000;
+
+/** @type {Map<string, { token: string, at: number }>} */
+const actionTokens = new Map();
+
+/**
+ * Record the RTS `action_token` from an inbound event payload for a channel.
+ * Bot-token calls to `assistant.search.context` require one of these.
+ * @param {string} channelId
+ * @param {string} token
+ * @returns {void}
+ */
+export function recordActionToken(channelId, token) {
+  if (channelId && token) {
+    actionTokens.set(channelId, { token, at: Date.now() });
+  }
+}
+
+/**
+ * Get the freshest usable RTS action token for a channel, or null when we hold
+ * none (or only a stale one) — callers then use the history path.
+ * @param {string} channelId
+ * @returns {string|null}
+ */
+export function getActionToken(channelId) {
+  const entry = actionTokens.get(channelId);
+  if (!entry) return null;
+  return Date.now() - entry.at <= ACTION_TOKEN_TTL_MS ? entry.token : null;
+}
+
+/**
  * Compute the local hour for the on-call user from a config offset.
  * @param {number} now  ms epoch
  * @param {number} offsetHours  hours from UTC (e.g. -5 for US Eastern-ish)
@@ -94,6 +129,38 @@ function isWatched(channelId, config) {
     ? config.watchedChannels
     : [];
   return list.includes(channelId);
+}
+
+/**
+ * Identify the dominant human sender in a buffer — the human (isBot === false)
+ * with the most messages. This mirrors the heuristic's own dominant-sender
+ * selection (heuristic.js) so that attribution (the DM target, morning Canvas,
+ * etc.) matches the person the pattern actually flagged.
+ *
+ * We derive it here rather than reading it off the buffer's last message,
+ * because evaluateChannel runs after EVERY message — including monitor-bot
+ * pings and posts from bystanders — so the last message's userId is frequently
+ * a bot_id or the wrong human.
+ *
+ * @param {Message[]} messages
+ * @returns {string|null} the dominant human userId, or null if no human messages
+ */
+function dominantHumanUserId(messages) {
+  /** @type {Map<string, number>} */
+  const counts = new Map();
+  for (const m of messages) {
+    if (!m || m.isBot !== false) continue;
+    counts.set(m.userId, (counts.get(m.userId) || 0) + 1);
+  }
+  let winner = null;
+  let best = 0;
+  for (const [userId, count] of counts) {
+    if (count > best) {
+      best = count;
+      winner = userId;
+    }
+  }
+  return winner;
 }
 
 /**
@@ -134,9 +201,13 @@ function evaluateChannel(channelId, { onTrigger, ledger, config, client }) {
     const { observed } = verdict;
     const session = ledger.createSession({
       channelId,
-      userId: buf.messages.length
-        ? buf.messages[buf.messages.length - 1].userId
-        : 'unknown',
+      // Attribute the session to the dominant HUMAN sender the heuristic
+      // flagged — never the last message's author, which is often a monitor
+      // bot's bot_id or a bystander who happened to post last. Getting this
+      // wrong sends the intervention DM to a bot id (which Slack rejects, so
+      // onTrigger throws and the DM is silently never delivered) or to the
+      // wrong human.
+      userId: dominantHumanUserId(buf.messages) || 'unknown',
       // Backdate to when the solo grind actually began, so the morning
       // Canvas timeline and duration reflect the real night (not trigger time).
       startedAt: now - Math.round((observed.soloMinutes || 0) * 60000),
@@ -146,14 +217,30 @@ function evaluateChannel(channelId, { onTrigger, ledger, config, client }) {
       pingsSilenced: [],
     });
 
-    try {
-      onTrigger({ session, observed, client });
-    } catch (err) {
-      console.log(
-        `[watcher] onTrigger threw for channel ${channelId}:`,
-        err && err.message ? err.message : err
-      );
-    }
+    // Fire-and-forget: send the DM first (demo latency matters), then enrich
+    // the session with RTS-sourced context when we hold a fresh action token —
+    // conversations.history otherwise. Both failures are non-fatal.
+    void (async () => {
+      try {
+        await onTrigger({ session, observed, client });
+      } catch (err) {
+        console.log(
+          `[watcher] onTrigger threw for channel ${channelId}:`,
+          err && err.message ? err.message : err
+        );
+      }
+      try {
+        const threadContext = await fetchThreadContext(client, channelId, {
+          limit: 50,
+          actionToken: getActionToken(channelId),
+        });
+        ledger.updateSession(session.id, {
+          contextSource: threadContext.source,
+        });
+      } catch {
+        /* context enrichment is best-effort */
+      }
+    })();
   } else if (active) {
     // Keep the active session's live counters fresh from the latest verdict.
     ledger.updateSession(active.id, {
@@ -174,11 +261,22 @@ export function registerWatcher(app, { onTrigger, ledger, config }) {
   const client = app?.client;
 
   // Subscribe to all messages.
-  app.message(async ({ message }) => {
+  app.message(async ({ message, event, body }) => {
     // Ignore message subtypes we can't attribute (channel joins, edits, etc.)
     // but still capture bot messages — we need them for pingsSilenced.
     const channelId = message?.channel;
     if (!channelId) return;
+
+    // Capture the short-lived RTS action_token from the event payload (bot
+    // tokens need one for assistant.search.context). Location varies by event
+    // type, so probe the known spots defensively.
+    const actionToken =
+      event?.assistant_thread?.action_token ||
+      message?.assistant_thread?.action_token ||
+      body?.event?.assistant_thread?.action_token ||
+      event?.action_token ||
+      null;
+    if (actionToken) recordActionToken(channelId, actionToken);
 
     const isBot =
       Boolean(message?.bot_id) || message?.subtype === 'bot_message';

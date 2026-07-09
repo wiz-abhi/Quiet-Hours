@@ -105,64 +105,162 @@ function renderTranscript(threadContext) {
 }
 
 /**
+ * Build the shared system + user prompts for the handoff note.
+ *
+ * @param {ThreadContext} threadContext
+ * @param {Observed} observed
+ * @returns {{ system: string, userText: string }}
+ */
+function buildPrompts(threadContext, observed) {
+  const transcript = renderTranscript(threadContext);
+  const localHour =
+    typeof observed?.localHour === 'number' ? observed.localHour : null;
+
+  const system =
+    `You are the tired on-call engineer writing a quick handoff note to a rested backup ` +
+    `so you can finally sleep. Write in the FIRST PERSON, warm and human, plainspoken — ` +
+    `not corporate. Cover, briefly: what's broken, what you've already tried, and where ` +
+    `things stand. If the context suggests it, add ONE short "be kind to X" human note ` +
+    `(a teammate, a customer, or the backup themselves). Hard limit: ${MAX_WORDS} words. ` +
+    `Output only the note text — no preamble, no markdown headers.`;
+
+  const userText =
+    `Here is the thread I've been working` +
+    (localHour !== null ? ` (my local time is around ${localHour}:00)` : '') +
+    `:\n\n${transcript || '(no transcript captured)'}\n\n` +
+    `Activity so far: ${observed?.messageCount ?? '?'} messages, ` +
+    `${observed?.soloMinutes ?? '?'} minutes solo.\n\n` +
+    `Write my handoff note.`;
+
+  return { system, userText };
+}
+
+/**
+ * Draft via the Anthropic Messages API.
+ * @param {string} apiKey
+ * @param {{ system: string, userText: string }} prompts
+ * @returns {Promise<string>} note text ('' on empty response)
+ */
+async function draftWithAnthropic(apiKey, { system, userText }) {
+  const client = new Anthropic({ apiKey });
+  const model = process.env.ANTHROPIC_MODEL || DEFAULT_MODEL;
+  const response = await client.messages.create({
+    model,
+    max_tokens: 400,
+    system,
+    messages: [{ role: 'user', content: userText }],
+  });
+  return (response?.content || [])
+    .filter((b) => b && b.type === 'text' && typeof b.text === 'string')
+    .map((b) => b.text)
+    .join('')
+    .trim();
+}
+
+/**
+ * Draft via any OpenAI-compatible chat-completions endpoint (Gemini's
+ * compatibility layer, Cerebras, etc.). Uses global fetch — no extra deps.
+ *
+ * @param {{ url: string, apiKey: string, model: string, label: string }} provider
+ * @param {{ system: string, userText: string }} prompts
+ * @returns {Promise<string>} note text ('' on empty response)
+ */
+async function draftWithOpenAiCompat(provider, { system, userText }) {
+  const res = await fetch(provider.url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${provider.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: provider.model,
+      max_tokens: 400,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: userText },
+      ],
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`${provider.label} HTTP ${res.status}`);
+  }
+  const data = await res.json();
+  const text = data?.choices?.[0]?.message?.content;
+  return typeof text === 'string' ? text.trim() : '';
+}
+
+/**
+ * The provider chain, in preference order. Each entry is included only when
+ * its API key is present in the environment.
+ * @returns {Array<{ label: string, draft: (p: {system:string,userText:string}) => Promise<string> }>}
+ */
+function availableProviders() {
+  const chain = [];
+  if (process.env.ANTHROPIC_API_KEY) {
+    chain.push({
+      label: 'anthropic',
+      draft: (p) => draftWithAnthropic(process.env.ANTHROPIC_API_KEY, p),
+    });
+  }
+  if (process.env.GEMINI_API_KEY) {
+    chain.push({
+      label: 'gemini',
+      draft: (p) =>
+        draftWithOpenAiCompat(
+          {
+            url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+            apiKey: process.env.GEMINI_API_KEY,
+            model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+            label: 'gemini',
+          },
+          p,
+        ),
+    });
+  }
+  if (process.env.CEREBRAS_API_KEY) {
+    chain.push({
+      label: 'cerebras',
+      draft: (p) =>
+        draftWithOpenAiCompat(
+          {
+            url: 'https://api.cerebras.ai/v1/chat/completions',
+            apiKey: process.env.CEREBRAS_API_KEY,
+            model: process.env.CEREBRAS_MODEL || 'llama-3.3-70b',
+            label: 'cerebras',
+          },
+          p,
+        ),
+    });
+  }
+  return chain;
+}
+
+/**
  * Draft a short, warm, specific handoff note in the tired engineer's voice.
+ * Tries each configured LLM provider in order (Anthropic → Gemini → Cerebras),
+ * then falls back to the templated note. Never throws.
  *
  * @param {{ threadContext: ThreadContext, observed: Observed }} params
- * @returns {Promise<string>} The handoff note. Falls back to a templated note
- *   when there's no API key or the API call fails. Never throws.
+ * @returns {Promise<string>} The handoff note.
  */
 export async function draftHandoffNote({ threadContext, observed }) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const prompts = buildPrompts(threadContext, observed);
 
-  // No key — go straight to the reliable templated note.
-  if (!apiKey) {
-    return templatedHandoffNote(threadContext, observed);
-  }
-
-  try {
-    const client = new Anthropic({ apiKey });
-    const model = process.env.ANTHROPIC_MODEL || DEFAULT_MODEL;
-
-    const transcript = renderTranscript(threadContext);
-    const localHour =
-      typeof observed?.localHour === 'number' ? observed.localHour : null;
-
-    const system =
-      `You are the tired on-call engineer writing a quick handoff note to a rested backup ` +
-      `so you can finally sleep. Write in the FIRST PERSON, warm and human, plainspoken — ` +
-      `not corporate. Cover, briefly: what's broken, what you've already tried, and where ` +
-      `things stand. If the context suggests it, add ONE short "be kind to X" human note ` +
-      `(a teammate, a customer, or the backup themselves). Hard limit: ${MAX_WORDS} words. ` +
-      `Output only the note text — no preamble, no markdown headers.`;
-
-    const userText =
-      `Here is the thread I've been working` +
-      (localHour !== null ? ` (my local time is around ${localHour}:00)` : '') +
-      `:\n\n${transcript || '(no transcript captured)'}\n\n` +
-      `Activity so far: ${observed?.messageCount ?? '?'} messages, ` +
-      `${observed?.soloMinutes ?? '?'} minutes solo.\n\n` +
-      `Write my handoff note.`;
-
-    const response = await client.messages.create({
-      model,
-      max_tokens: 400,
-      system,
-      messages: [{ role: 'user', content: userText }],
-    });
-
-    // Concatenate all text blocks from the response.
-    const text = (response?.content || [])
-      .filter((b) => b && b.type === 'text' && typeof b.text === 'string')
-      .map((b) => b.text)
-      .join('')
-      .trim();
-
-    if (!text) {
-      return templatedHandoffNote(threadContext, observed);
+  for (const provider of availableProviders()) {
+    try {
+      const text = await provider.draft(prompts);
+      if (text) {
+        console.log(`[handoff] note drafted via ${provider.label}`);
+        return text;
+      }
+      console.log(`[handoff] ${provider.label} returned empty; trying next`);
+    } catch (err) {
+      console.log(
+        `[handoff] ${provider.label} failed (${err?.message}); trying next`,
+      );
     }
-    return text;
-  } catch {
-    // Any failure — network, auth, quota — falls back to the templated note.
-    return templatedHandoffNote(threadContext, observed);
   }
+
+  // No provider configured or all failed — the reliable templated note.
+  return templatedHandoffNote(threadContext, observed);
 }

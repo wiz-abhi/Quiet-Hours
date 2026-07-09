@@ -1,6 +1,6 @@
 # Architecture
 
-Quiet Hours is a Bolt for JavaScript app (Socket Mode) that observes Slack channel activity, decides via a transparent heuristic whether one human is carrying an incident alone late at night, and — with that human's consent — hands the incident off to a rested backup. It leans on three technologies that each do real work: **Slack RTS** for detection, an **MCP server** for the PagerDuty handoff, and **Slack AI** for the assistant surface, the Claude-drafted handoff note, and the morning Canvas.
+Quiet Hours is a Bolt for JavaScript app (Socket Mode) that observes Slack channel activity, decides via a transparent heuristic whether one human is carrying an incident alone late at night, and — with that human's consent — hands the incident off to a rested backup. It leans on three technologies that each do real work: **Slack RTS** for detection, an **MCP server** for the PagerDuty handoff, and **Slack AI** for the assistant surface, the AI-drafted handoff note (provider chain: Anthropic → Gemini → Cerebras, with a templated fallback), and the morning Canvas.
 
 ## Component diagram
 
@@ -37,7 +37,7 @@ flowchart LR
     end
 
     subgraph EXT[External]
-        Claude[(Claude<br/>claude-sonnet-5)]
+        Claude[(LLM<br/>Gemini · Claude · Cerebras)]
         PDServer[pagerdutyServer.js<br/>MCP server]
         PD[(PagerDuty API)]
     end
@@ -70,7 +70,7 @@ sequenceDiagram
     participant E as interventionEngine
     participant U as Human (DM)
     participant M as pagerdutyClient ↔ MCP server
-    participant C as Claude
+    participant C as LLM (Gemini · Claude · Cerebras)
     participant L as ledger.json
     participant Cv as Canvas
 
@@ -112,7 +112,7 @@ The single persisted entity is the **IncidentSession**, stored in the JSON-file 
 | `state` | enum | `detected` → `dm_sent` → `consented` \| `snoozed` \| `keep_going` → `handed_off` → `closed`. |
 | `consentAt` | ISO timestamp \| null | When the human consented. |
 | `backupUserId` | string \| null | Rested backup returned by `get_oncall`. |
-| `handoffNote` | string \| null | Claude-drafted note actually sent. |
+| `handoffNote` | string \| null | AI-drafted note actually sent (LLM: Gemini · Claude · Cerebras, or templated fallback). |
 | `pagedAt` | ISO timestamp \| null | When `page_backup` was acknowledged. |
 | `canvasPostedAt` | ISO timestamp \| null | When the morning Canvas went out. |
 
@@ -124,4 +124,4 @@ Everything the Canvas prints is drawn from these fields — no derived "scores,"
 
 **The MCP server is the actuator.** Detecting the problem is worthless if the fix is "post a message and hope someone volunteers." The value is in *actually paging a rested human*, which requires reading a live on-call schedule and issuing a page. `pagerdutyServer.js` exposes exactly two tools — `get_oncall` (who is rested and available) and `page_backup` (page them with the handoff note) — and the intervention engine calls them through a standard MCP client. Remove the MCP integration and the agent can notice the problem but can't resolve it; the handoff becomes a suggestion instead of an action.
 
-Together they close the loop: RTS turns raw channel traffic into an honest observation, and the MCP server turns the human's consent into a real, rested backup on the pager. Slack AI carries the human-facing half — the assistant conversation, the Claude-drafted handoff, and the morning Canvas — so the whole exchange stays warm and legible rather than mechanical.
+Together they close the loop: RTS turns raw channel traffic into an honest observation, and the MCP server turns the human's consent into a real, rested backup on the pager. Slack AI carries the human-facing half — the assistant conversation, the AI-drafted handoff (provider chain: Anthropic → Gemini → Cerebras, with a templated fallback), and the morning Canvas — so the whole exchange stays warm and legible rather than mechanical.

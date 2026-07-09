@@ -13,7 +13,7 @@ Everything below is ready to paste into the Devpost form, section by section.
 **Tagline (58 chars):** An on-call agent that protects the human, not the service.
 
 **Elevator pitch:**
-Quiet Hours watches high-intensity Slack channels and notices when one person is carrying an incident alone, late at night. It sends that human a warm, honest DM built only from what it actually observed — messages sent, hours solo, local time — and on their consent it drafts a handoff note with Claude and pages a rested backup through a real PagerDuty MCP server. The next morning it posts a Canvas that thanks them for the night, so the work nobody saw doesn't stay invisible.
+Quiet Hours watches high-intensity Slack channels and notices when one person is carrying an incident alone, late at night. It sends that human a warm, honest DM built only from what it actually observed — messages sent, hours solo, local time — and on their consent it drafts a handoff note with an LLM (provider chain: Anthropic → Gemini → Cerebras, with a templated fallback) and pages a rested backup through a real PagerDuty MCP server. The next morning it posts a Canvas that thanks them for the night, so the work nobody saw doesn't stay invisible.
 
 ---
 
@@ -39,7 +39,7 @@ Quiet Hours runs a **transparent 4-signal heuristic** over live channel activity
 When it fires, the intervention flow runs end to end:
 
 1. **It DMs the human** with a warm, honest message that states only the observed facts — "You've been on this alone for 3h 12m," the messages they sent, the quietest stretch with no reply, their local time — plus buttons. No diagnosis, no "you look burned out."
-2. **On consent** ("Get me a backup" / "Hand off & sleep"), Claude drafts a handoff note from the channel context, and Quiet Hours pages a **rested backup** from the on-call schedule through a PagerDuty MCP server.
+2. **On consent** ("Get me a backup" / "Hand off & sleep"), an LLM drafts a handoff note from the channel context (provider chain: Anthropic → Gemini → Cerebras, with a templated fallback), and Quiet Hours pages a **rested backup** from the on-call schedule through a PagerDuty MCP server.
 3. **It confirms and steps back** — "Done. I've paged Priya and posted your handoff note. You're off the hook — go get some rest."
 4. **The next morning it posts a Canvas** — "What Priya carried last night" — assembled *only* from ledger facts recorded during the incident, so the invisible night becomes visible to the team.
 
@@ -55,7 +55,7 @@ Quiet Hours is a Node 22 / ESM app built on **Bolt for JavaScript in Socket Mode
 
 - **A real stdio MCP server for PagerDuty** (`src/mcp/`). `pagerdutyServer.js` is a genuine Model Context Protocol server exposing exactly two tools — `get_oncall` (find who's rested and available) and `page_backup` (page them with the handoff note). The intervention engine calls them through a standard MCP client over stdio. This is the actuator: detection is worthless if the fix is "post a message and hope someone volunteers." The MCP server turns the human's consent into a real page to a rested person.
 
-- **Claude-drafted handoff** (`src/agent/handoff.js`). When the human consents, Claude drafts the handoff note from the observed channel context — an honest, readable summary the backup can act on immediately, so waking someone up costs them seconds, not an archaeology dig.
+- **AI-drafted handoff** (`src/agent/handoff.js`). When the human consents, an LLM drafts the handoff note from the observed channel context (provider chain: Anthropic → Gemini → Cerebras, with a templated fallback) — an honest, readable summary the backup can act on immediately, so waking someone up costs them seconds, not an archaeology dig.
 
 - **The morning Canvas** (`src/ui/canvas.js`). Built entirely from the ledger, it's the emotional payoff: the night the team slept through, made legible and appreciated.
 
@@ -77,7 +77,7 @@ Underneath all of it is one rule we enforced in code — **the honest-data ledge
 
 **Challenges.** The hardest problem wasn't technical — it was tone. An agent that DMs you at 1 a.m. about how you're doing can feel invasive in one wrong word. We rewrote the copy until every line stated an observed fact and offered, never insisted. Enforcing the honesty rule end to end also took discipline: it's tempting to compute a friendly "risk level," and we deleted every such shortcut so the ledger stays pure. Wiring a real stdio MCP server (rather than faking the PagerDuty call) meant getting the client/server handshake right so the page is a genuine tool call.
 
-**Accomplishments.** A working end-to-end intervention — detection → DM → Claude handoff → real MCP page → ledger → morning Canvas — where all three required technologies (RTS, MCP, Slack AI) are load-bearing, not decorative. A 4-signal heuristic that's fully transparent and unit-tested. And a product that stays warm and non-paternalistic while doing something genuinely useful.
+**Accomplishments.** A working end-to-end intervention — detection → DM → AI handoff → real MCP page → ledger → morning Canvas — where all three required technologies (RTS, MCP, Slack AI) are load-bearing, not decorative. A 4-signal heuristic that's fully transparent and unit-tested. And a product that stays warm and non-paternalistic while doing something genuinely useful.
 
 **What we learned.** Designing for consent changes the architecture, not just the copy: because the human can decline at every step, the intervention had to be a proper state machine (`detected → dm_sent → consented | snoozed | keep_going → handed_off → closed`) rather than a linear script. We also learned how much trust rides on the honesty rule — the moment an agent shows one invented number, the human stops believing all of them.
 
@@ -92,7 +92,7 @@ The whole flow is scripted behind one command so you can see all three required 
 **Setup (one time):**
 1. `npm install`
 2. Create the Slack app from `manifest.json` (scopes, Socket Mode, slash command — see `docs/SETUP.md`).
-3. Copy `.env.example` to `.env` and add your Slack tokens. **Anthropic and PagerDuty keys are optional** — mock fallbacks let you run the entire flow without them.
+3. Copy `.env.example` to `.env` and add your Slack tokens. **LLM (Anthropic / Gemini / Cerebras) and PagerDuty keys are optional** — mock fallbacks let you run the entire flow without them.
 4. `npm start`
 
 **The demo — in any channel the bot is in, run:**
@@ -105,7 +105,7 @@ This seeds a scripted late-night incident and walks the whole path:
 
 1. **See detection (RTS):** the heuristic fires on scripted RTS context; the trigger log names all four signals.
 2. **See the intervention (Slack AI):** the DM arrives with observed facts and buttons. Click **Get me a backup**.
-3. **See the handoff (MCP):** `get_oncall` finds a rested backup, Claude drafts the handoff note, and `page_backup` pages them — all through the PagerDuty MCP server.
+3. **See the handoff (MCP):** `get_oncall` finds a rested backup, an LLM drafts the handoff note (provider chain: Anthropic → Gemini → Cerebras, templated fallback), and `page_backup` pages them — all through the PagerDuty MCP server.
 4. **See the payoff (Slack AI):** the morning Canvas is posted, built only from observed data.
 
 RTS, MCP, and Slack AI all appear on screen in that one run.
@@ -120,7 +120,7 @@ RTS, MCP, and Slack AI all appear on screen in that one run.
 
 3. **The MCP handoff in flight.** A split view of `get_oncall` returning a rested backup and `page_backup` acknowledging the page. *Caption: "A real stdio MCP server turns the human's consent into an actual page to a rested backup."*
 
-4. **The Claude-drafted handoff note.** The note the backup receives, generated from channel context. *Caption: "Claude writes the handoff so waking someone up costs them seconds, not an archaeology dig."*
+4. **The AI-drafted handoff note.** The note the backup receives, generated from channel context. *Caption: "An LLM (Gemini · Claude · Cerebras) writes the handoff so waking someone up costs them seconds, not an archaeology dig."*
 
 5. **The morning thank-you Canvas.** "What Priya carried last night," assembled from the ledger, with the honesty footer. *Caption: "Every line was observed in Slack — the invisible night, made visible and appreciated."*
 

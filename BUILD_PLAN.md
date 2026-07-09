@@ -132,7 +132,7 @@ incident_session {
 **Goal: the intervention moment is beautiful.**
 
 - [ ] Design the DM with Block Kit: header ("You've been on this alone for 3h 12m"), the four observed stats as fields, context quote of the incident's first message, three buttons
-- [ ] Claude-drafted handoff note: prompt takes RTS-retrieved thread context → produces a short, warm, specific note ("the flaky routing job restarts every 20 min; last good deploy was 22:40; Maria from ops was asking in #logistics") — post as the DM to the backup + link in thread
+- [ ] AI-drafted handoff note (LLM provider chain: Anthropic → Gemini → Cerebras, with a templated fallback): prompt takes RTS-retrieved thread context → produces a short, warm, specific note ("the flaky routing job restarts every 20 min; last good deploy was 22:40; Maria from ops was asking in #logistics") — post as the DM to the backup + link in thread
 - [ ] `[Keep going]` and `[Snooze 30m]` paths (respect autonomy — this is the anti-paternalism answer)
 - [ ] Ping silencing (F5): intercept/queue the bot-notification firehose — simplest honest version: a `pings_silenced` counter for messages from bots/webhooks in the watched channel during the solo window, delivered as a digest with the morning Canvas
 - [ ] Write ledger records for everything observed
@@ -171,7 +171,7 @@ incident_session {
 |---|---|
 | 0:00–0:12 | Black screen, clock reads 1:47 AM. Hook line: *"It's 1:47 in the morning, and Priya has been fighting this outage alone for three hours — and nobody at her nonprofit knows."* Show the wall of 47 solo messages. |
 | 0:12–0:40 | The DM arrives. Read it aloud. Show the four observed numbers. She taps **[Hand off & sleep]**. |
-| 0:40–1:10 | Split screen: PagerDuty schedule flips LIVE; backup gets paged with the Claude-drafted handoff note. *"Real schedule. Real page. Three seconds."* |
+| 0:40–1:10 | Split screen: PagerDuty schedule flips LIVE; backup gets paged with the AI-drafted handoff note. *"Real schedule. Real page. Three seconds."* |
 | 1:10–1:40 | Hard cut: 8:04 AM. The Canvas: *"What Priya saved last night."* Linger on the numbers + the footer: *"every number observed in Slack."* |
 | 1:40–2:05 | Architecture: 15s diagram walkthrough — *"Slack's Real-Time Search API sees what webhooks can't: one person, alone. MCP turns rest into an action. Claude writes the handoff."* |
 | 2:05–2:40 | Impact close: volunteer burnout stats (real, cited), who this serves, the line: *"Every incident tool optimizes for the service. Quiet Hours optimizes for the human."* Logo. |

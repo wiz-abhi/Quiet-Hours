@@ -12,7 +12,7 @@ Mirrors the Devpost requirements for the **Slack Agent Builder Challenge**. Work
 - [ ] Under **3 minutes**
 - [ ] **Slack RTS** visible on screen (detection firing — the 4-signal trigger)
 - [ ] **MCP** visible on screen (`get_oncall` / `page_backup` via the PagerDuty MCP server)
-- [ ] **Slack AI** visible on screen (intervention DM / Claude-drafted handoff / morning Canvas)
+- [ ] **Slack AI** visible on screen (intervention DM / AI-drafted handoff / morning Canvas)
 - [ ] Video link added to the Devpost submission
 
 ## Architecture & repo

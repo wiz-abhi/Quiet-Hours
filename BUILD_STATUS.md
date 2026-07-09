@@ -29,7 +29,7 @@ node --test test/heuristic.test.js   # 3/3 pass
 The three required technologies are all genuinely load-bearing and demonstrated:
 - **RTS API** → `src/detection/rtsClient.js` (live context for detection)
 - **MCP server integration** → `src/mcp/pagerdutyServer.js` (a real stdio MCP server; the handoff literally calls its `get_oncall` + `page_backup` tools)
-- **Slack AI** → Assistant surface + Claude-drafted handoff (`src/agent/handoff.js`) + Canvas
+- **Slack AI** → Assistant surface + AI-drafted handoff (`src/agent/handoff.js`; provider chain Anthropic → Gemini → Cerebras, with a templated fallback) + Canvas
 
 ## What YOU must do (needs your accounts — cannot be automated)
 

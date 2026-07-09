@@ -1,6 +1,6 @@
 # Setup
 
-A precise, numbered setup for a solo developer on Windows. You need **Node ≥ 20**. Anthropic and PagerDuty are optional — Quiet Hours ships mock fallbacks so the full flow runs without either. Steps that are optional are marked **(optional)**.
+A precise, numbered setup for a solo developer on Windows. You need **Node ≥ 20**. An LLM key (Anthropic / Gemini / Cerebras) and PagerDuty are optional — Quiet Hours ships mock fallbacks so the full flow runs without either. Steps that are optional are marked **(optional)**.
 
 ---
 
@@ -24,11 +24,14 @@ A precise, numbered setup for a solo developer on Windows. You need **Node ≥ 2
 8. Copy the **Signing Secret** (Settings → Basic Information → App Credentials) — this is `SLACK_SIGNING_SECRET`.
 9. Invite the bot to the channel(s) you want it to watch: in Slack, `/invite @Quiet Hours` in each channel. Note the channel IDs for `QH_WATCHED_CHANNELS`.
 
-## b. Get an Anthropic API key **(optional)**
+## b. Get an LLM API key **(optional)**
 
-1. Sign in at <https://console.anthropic.com/> and create an API key. This is `ANTHROPIC_API_KEY`.
-2. Set `ANTHROPIC_MODEL=claude-sonnet-5`.
-3. If you skip this, Quiet Hours uses a mock handoff-note drafter so the flow still completes.
+The handoff-note drafter tries an LLM provider chain in order — **Anthropic → Google Gemini → Cerebras** — and falls back to a templated note if none is configured. Set any one of the three (or none):
+
+1. **Anthropic** — sign in at <https://console.anthropic.com/> and create an API key. Set `ANTHROPIC_API_KEY`, and optionally `ANTHROPIC_MODEL`.
+2. **Google Gemini** — get a key from <https://aistudio.google.com/apikey>. Set `GEMINI_API_KEY`, and optionally `GEMINI_MODEL=gemini-3-flash-preview` (the default).
+3. **Cerebras** (OpenAI-compatible) — get a key from <https://cloud.cerebras.ai/>. Set `CEREBRAS_API_KEY`, and optionally `CEREBRAS_MODEL=gpt-oss-120b` (the default).
+4. If you skip all three, Quiet Hours uses a templated handoff-note drafter so the flow still completes.
 
 ## c. Create a PagerDuty developer account **(optional)**
 
@@ -53,9 +56,13 @@ SLACK_BOT_TOKEN=xoxb-...
 SLACK_APP_TOKEN=xapp-...
 SLACK_SIGNING_SECRET=...
 
-# Anthropic (optional — mock fallback if omitted)
+# LLM handoff drafter (optional — templated fallback if all omitted)
+# Provider chain, in order: Anthropic → Gemini → Cerebras
 ANTHROPIC_API_KEY=sk-ant-...
-ANTHROPIC_MODEL=claude-sonnet-5
+# GEMINI_API_KEY=...
+# GEMINI_MODEL=gemini-3-flash-preview
+# CEREBRAS_API_KEY=...
+# CEREBRAS_MODEL=gpt-oss-120b
 
 # PagerDuty (optional — mock fallback if omitted)
 PAGERDUTY_TOKEN=...
@@ -82,7 +89,7 @@ You should see the Socket Mode connection come up. Then, in a watched channel:
 /quiethours demo
 ```
 
-This seeds a scripted late-night incident (`src/demo/`) and runs the whole flow: detection → intervention DM → consent → `get_oncall` → Claude handoff draft → `page_backup` → ledger update → morning Canvas.
+This seeds a scripted late-night incident (`src/demo/`) and runs the whole flow: detection → intervention DM → consent → `get_oncall` → AI handoff draft (LLM: Gemini · Claude · Cerebras, or templated fallback) → `page_backup` → ledger update → morning Canvas.
 
 ---
 

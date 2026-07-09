@@ -2,9 +2,10 @@
  * Quiet Hours — handoff note drafter.
  *
  * Turns the thread context around a lone late-night responder into a short,
- * warm, specific handoff note written in the tired engineer's voice. Uses the
- * Anthropic Messages API; if there's no API key or the call fails, it returns a
- * solid templated fallback built from the thread context. Never throws.
+ * warm, specific handoff note written in the tired engineer's voice. Tries the
+ * configured LLM providers in order (Anthropic → Gemini → Cerebras); if no key
+ * is set or every call fails, it returns a solid templated fallback built from
+ * the thread context. Never throws.
  *
  * @module agent/handoff
  */
@@ -158,8 +159,44 @@ async function draftWithAnthropic(apiKey, { system, userText }) {
 }
 
 /**
- * Draft via any OpenAI-compatible chat-completions endpoint (Gemini's
- * compatibility layer, Cerebras, etc.). Uses global fetch — no extra deps.
+ * Draft via Google Gemini's native generateContent API. (The OpenAI-compat
+ * layer rejects some AI-Studio key types that the native endpoint accepts.)
+ *
+ * @param {string} apiKey
+ * @param {{ system: string, userText: string }} prompts
+ * @returns {Promise<string>} note text ('' on empty response)
+ */
+async function draftWithGemini(apiKey, { system, userText }) {
+  const model = process.env.GEMINI_MODEL || 'gemini-flash-latest';
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: system }] },
+        contents: [{ role: 'user', parts: [{ text: userText }] }],
+        generationConfig: { maxOutputTokens: 4000 },
+      }),
+    },
+  );
+  if (!res.ok) {
+    throw new Error(`gemini HTTP ${res.status}`);
+  }
+  const data = await res.json();
+  const parts = data?.candidates?.[0]?.content?.parts || [];
+  return parts
+    .map((p) => (typeof p?.text === 'string' ? p.text : ''))
+    .join('')
+    .trim();
+}
+
+/**
+ * Draft via any OpenAI-compatible chat-completions endpoint (Cerebras, etc.).
+ * Uses global fetch — no extra deps.
  *
  * @param {{ url: string, apiKey: string, model: string, label: string }} provider
  * @param {{ system: string, userText: string }} prompts
@@ -174,7 +211,9 @@ async function draftWithOpenAiCompat(provider, { system, userText }) {
     },
     body: JSON.stringify({
       model: provider.model,
-      max_tokens: 400,
+      // Generous cap: reasoning models (e.g. gpt-oss) spend tokens thinking
+      // before emitting text; a tight cap yields an empty message.content.
+      max_tokens: 4000,
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: userText },
@@ -205,16 +244,7 @@ function availableProviders() {
   if (process.env.GEMINI_API_KEY) {
     chain.push({
       label: 'gemini',
-      draft: (p) =>
-        draftWithOpenAiCompat(
-          {
-            url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
-            apiKey: process.env.GEMINI_API_KEY,
-            model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
-            label: 'gemini',
-          },
-          p,
-        ),
+      draft: (p) => draftWithGemini(process.env.GEMINI_API_KEY, p),
     });
   }
   if (process.env.CEREBRAS_API_KEY) {
@@ -225,7 +255,7 @@ function availableProviders() {
           {
             url: 'https://api.cerebras.ai/v1/chat/completions',
             apiKey: process.env.CEREBRAS_API_KEY,
-            model: process.env.CEREBRAS_MODEL || 'llama-3.3-70b',
+            model: process.env.CEREBRAS_MODEL || 'gpt-oss-120b',
             label: 'cerebras',
           },
           p,

@@ -1,0 +1,792 @@
+<!doctype html><meta charset="utf-8">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body {
+    width:1920px; height:1080px; overflow:hidden; background:#0f1014;
+    font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:#e8e8ea; -webkit-font-smoothing:antialiased;
+  }
+  #stage {
+    position:fixed; top:0; left:0; width:1920px; height:1080px; overflow:hidden;
+    background:#0f1014;
+  }
+  .layer { position:absolute; top:0; left:0; width:1920px; height:1080px; }
+
+  /* ---------- Slack-ish chrome ---------- */
+  #slack { background:#12141a; }
+  #sidebar {
+    position:absolute; top:0; left:0; width:300px; height:1080px;
+    background:#15171e; border-right:1px solid #23262f;
+  }
+  #ws-head {
+    height:70px; display:flex; align-items:center; padding:0 22px;
+    border-bottom:1px solid #23262f; font-weight:700; font-size:20px; letter-spacing:.2px;
+  }
+  #ws-head .dot { width:10px; height:10px; border-radius:50%; background:#3fbf7f; margin-left:10px; }
+  .side-sec { padding:18px 16px 4px; color:#7f8494; font-size:13px; font-weight:600; letter-spacing:.4px; text-transform:uppercase; }
+  .side-item { padding:7px 16px; color:#b9bdc9; font-size:16px; border-radius:8px; margin:1px 10px; }
+  .side-item.active { background:#2b3550; color:#fff; font-weight:600; }
+  .side-item .h { color:#7f8494; margin-right:6px; }
+
+  #main { position:absolute; top:0; left:300px; width:1620px; height:1080px; }
+  #chan-head {
+    height:70px; display:flex; align-items:center; padding:0 30px;
+    border-bottom:1px solid #23262f; background:#12141a;
+  }
+  #chan-head .name { font-size:22px; font-weight:700; }
+  #chan-head .name .h { color:#7f8494; margin-right:4px; }
+  #chan-head .meta { color:#7f8494; font-size:15px; margin-left:18px; }
+
+  #scrollport { position:absolute; top:70px; left:0; width:1620px; height:1010px; overflow:hidden; }
+  #feed { position:absolute; left:0; width:1620px; padding:0 40px; will-change:transform; }
+
+  .msg { display:flex; padding:9px 0; align-items:flex-start; }
+  .msg .av {
+    width:44px; height:44px; border-radius:10px; flex:0 0 44px; margin-right:14px;
+    display:flex; align-items:center; justify-content:center; font-weight:700; font-size:17px; color:#fff;
+  }
+  .msg .body { flex:1; min-width:0; }
+  .msg .head { display:flex; align-items:baseline; gap:10px; margin-bottom:2px; }
+  .msg .who { font-weight:700; font-size:16px; }
+  .msg .ts { color:#7f8494; font-size:13px; }
+  .msg .clock { color:#8b90a0; font-size:14px; font-variant-numeric:tabular-nums; margin-right:6px; }
+  .msg .text { font-size:16px; line-height:1.5; color:#dcdfe8; }
+  .msg.bot .text { color:#c9ccd6; }
+  .msg .text .code { font-family:"SF Mono",Consolas,monospace; background:#20232c; padding:1px 6px; border-radius:5px; font-size:14px; color:#e6b673; }
+
+  .bot-alert { background:#221a12; border-left:3px solid #d98a3d; border-radius:6px; padding:8px 12px; display:inline-block; }
+  .bot-ok    { background:#122016; border-left:3px solid #3fbf7f; border-radius:6px; padding:8px 12px; display:inline-block; }
+
+  /* avatar colors */
+  .av-P  { background:#e26d5c; }
+  .av-M  { background:#5b606e; }
+  .av-Q  { background:#5b5bd6; }
+  .av-ML { background:#3a7ca5; }
+
+  .priya-highlight {
+    position:absolute; border:2px solid #e26d5c; border-radius:14px;
+    box-shadow:0 0 40px rgba(226,109,92,.35); background:rgba(226,109,92,.06);
+    pointer-events:none;
+  }
+  .scroll-highlight {
+    position:absolute; border-radius:12px; background:rgba(120,130,220,.14);
+    box-shadow:0 0 30px rgba(120,130,220,.18); pointer-events:none;
+  }
+
+  /* ---------- night mood ---------- */
+  #lamp { background:radial-gradient(ellipse 900px 700px at 12% 30%, rgba(255,190,120,.10), rgba(255,180,110,.03) 40%, transparent 65%); pointer-events:none; }
+  #vignette { background:radial-gradient(ellipse 1400px 1000px at 50% 50%, transparent 45%, rgba(0,0,0,.55) 100%); pointer-events:none; }
+  #blackout { background:#000; }
+  #dimmer { background:#000; }
+
+  /* ---------- DM panel ---------- */
+  #dm {
+    position:absolute; top:120px; left:560px; width:800px;
+    background:#171922; border:1px solid #2a2e3a; border-radius:20px;
+    box-shadow:0 30px 90px rgba(0,0,0,.6); overflow:hidden;
+    transform-origin:center center;
+  }
+  #dm-inner { padding:34px 40px 40px; }
+  #dm-head { display:flex; align-items:center; gap:14px; margin-bottom:26px; }
+  #dm-head .av { width:52px; height:52px; border-radius:12px; background:#5b5bd6; display:flex; align-items:center; justify-content:center; font-size:26px; }
+  #dm-head .nm { font-weight:700; font-size:20px; }
+  #dm-head .app { font-size:13px; color:#8b90a0; background:#2a2e3a; padding:2px 8px; border-radius:5px; margin-left:4px; }
+  #dm-title { font-size:30px; font-weight:800; line-height:1.25; margin-bottom:20px; letter-spacing:-.3px; }
+  #dm-body { font-size:20px; line-height:1.6; color:#d5d8e2; white-space:pre-wrap; margin-bottom:28px; }
+
+  #dm-fields { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:28px; }
+  .field { background:#1e212c; border:1px solid #2a2e3a; border-radius:12px; padding:16px 18px; }
+  .field .lbl { font-size:14px; color:#8b90a0; text-transform:uppercase; letter-spacing:.4px; margin-bottom:6px; }
+  .field .val { font-size:19px; font-weight:600; color:#eef0f5; }
+
+  #dm-buttons { display:flex; gap:14px; margin-bottom:22px; }
+  .btn { padding:15px 22px; border-radius:12px; font-size:18px; font-weight:600; border:1px solid #2f3340; background:#1e212c; color:#d5d8e2; }
+  .btn.primary { background:#2f9e5e; border-color:#2f9e5e; color:#fff; }
+  #dm-confirm { display:none; background:#16241b; border:1px solid #2f6e46; border-radius:14px; padding:22px 24px; font-size:20px; line-height:1.55; color:#d8ecdf; white-space:pre-wrap; margin-bottom:22px; }
+  #dm-footer { font-size:15px; font-style:italic; color:#8b90a0; line-height:1.5; }
+  #footer-glow {
+    position:absolute; height:3px; border-radius:3px;
+    background:linear-gradient(90deg, rgba(255,180,110,0), #ffb46e, rgba(255,180,110,0));
+    box-shadow:0 0 20px rgba(255,180,110,.6);
+  }
+
+  #cursor { position:absolute; width:26px; height:26px; pointer-events:none; }
+
+  /* ---------- architecture ---------- */
+  #arch { background:transparent; }
+  .arch-node {
+    position:absolute; left:200px; width:820px; padding:24px 30px;
+    background:#171922; border:1px solid #2a2e3a; border-radius:16px;
+    box-shadow:0 16px 50px rgba(0,0,0,.5);
+  }
+  .arch-node .tag { font-size:16px; font-weight:700; letter-spacing:.3px; margin-bottom:6px; }
+  .arch-node .desc { font-size:19px; color:#c9ccd6; }
+  .arch-node .num { position:absolute; left:-22px; top:24px; width:44px; height:44px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:20px; color:#fff; }
+  #arch-slack {
+    position:absolute; right:180px; top:430px; width:220px; height:220px;
+    background:#1a1d27; border:1px solid #3a3f52; border-radius:34px;
+    display:flex; align-items:center; justify-content:center; font-size:64px;
+    box-shadow:0 20px 60px rgba(0,0,0,.5);
+  }
+  #arch-title { position:absolute; left:200px; top:120px; font-size:34px; font-weight:800; color:#eef0f5; }
+  .arch-arrow { position:absolute; height:2px; background:linear-gradient(90deg,#5b5bd6,#3fbf7f); }
+
+  /* ---------- handoff split ---------- */
+  #split { background:#0f1014; }
+  #split-left { position:absolute; top:0; left:0; width:1120px; height:1080px; background:#12141a; border-right:1px solid #23262f; }
+  #handoff-card {
+    position:absolute; top:150px; left:80px; width:960px;
+    background:#171922; border:1px solid #2a2e3a; border-radius:16px; padding:30px 34px;
+  }
+  #handoff-card .hh { display:flex; align-items:center; gap:12px; margin-bottom:18px; }
+  #handoff-card .hh .av { width:44px; height:44px; border-radius:10px; background:#5b5bd6; display:flex; align-items:center; justify-content:center; font-size:22px; }
+  #handoff-card .hh .who { font-weight:700; font-size:19px; }
+  #handoff-card .hh .badge { font-size:14px; background:#2a2e3a; color:#c9ccd6; padding:3px 10px; border-radius:6px; }
+  #handoff-title { font-size:22px; font-weight:700; margin-bottom:14px; }
+  #handoff-body { font-size:19px; line-height:1.6; color:#d5d8e2; }
+
+  #split-right { position:absolute; top:0; left:1120px; width:800px; height:1080px; overflow:hidden;
+    background:linear-gradient(160deg,#1a1f2e,#0c0e15); }
+  #lock-time { position:absolute; top:120px; left:0; width:800px; text-align:center; font-size:88px; font-weight:200; color:#eef0f5; letter-spacing:2px; }
+  #lock-date { position:absolute; top:240px; left:0; width:800px; text-align:center; font-size:22px; color:#9297a6; }
+  #pd-push {
+    position:absolute; top:440px; left:60px; width:680px;
+    background:rgba(30,33,44,.92); border:1px solid #363b4c; border-radius:20px;
+    padding:22px 26px; box-shadow:0 20px 60px rgba(0,0,0,.5); backdrop-filter:blur(6px);
+  }
+  #pd-push .ph { display:flex; align-items:center; gap:10px; font-size:15px; color:#9297a6; margin-bottom:12px; }
+  #pd-push .ph .ic { width:26px; height:26px; border-radius:7px; background:#0aa06e; display:flex; align-items:center; justify-content:center; font-size:15px; }
+  #pd-push .kind { font-weight:700; color:#e26d5c; font-size:15px; letter-spacing:.5px; margin-bottom:6px; }
+  #pd-push .title { font-size:21px; font-weight:600; color:#eef0f5; line-height:1.4; }
+
+  /* ---------- morning canvas ---------- */
+  #canvas-layer { background:#0f1014; }
+  #canvas-port { position:absolute; top:60px; left:410px; width:1100px; height:960px; overflow:hidden;
+    background:#faf7f0; border-radius:18px; box-shadow:0 30px 90px rgba(0,0,0,.6); }
+  #canvas-doc { position:absolute; left:0; top:0; width:1100px; padding:70px 90px; color:#2a2622; will-change:transform; }
+  #canvas-doc h1 { font-size:46px; font-weight:800; letter-spacing:-.5px; margin-bottom:28px; color:#1e1b17; }
+  #canvas-doc .intro { font-size:22px; line-height:1.7; color:#4a453d; margin-bottom:40px; }
+  #canvas-doc h2 { font-size:26px; font-weight:700; color:#7a5a3a; margin:34px 0 18px; padding-bottom:8px; border-bottom:2px solid #e8e0d2; }
+  #canvas-doc .tl { display:flex; gap:16px; font-size:21px; line-height:1.9; color:#3a352e; }
+  #canvas-doc .tl .t { font-variant-numeric:tabular-nums; color:#7a5a3a; font-weight:600; width:90px; flex:0 0 90px; }
+  #canvas-doc .stat { display:flex; justify-content:space-between; font-size:21px; padding:11px 0; border-bottom:1px solid #ece5d8; }
+  #canvas-doc .stat .k { color:#6a635a; }
+  #canvas-doc .stat .v { font-weight:700; color:#2a2622; }
+  #canvas-doc blockquote { border-left:4px solid #c9a86a; background:#f3ecdd; padding:22px 26px; margin:14px 0; font-size:20px; line-height:1.7; font-style:italic; color:#4a453d; border-radius:0 10px 10px 0; }
+  #canvas-doc .cfooter { margin-top:40px; font-size:19px; font-style:italic; color:#8a8378; }
+
+  /* ---------- end card ---------- */
+  #endcard { background:#0b0c10; display:flex; align-items:center; justify-content:center; }
+  #endcard .box { text-align:center; }
+  #endcard .moon { font-size:96px; margin-bottom:24px; }
+  #endcard .wm { font-size:76px; font-weight:800; letter-spacing:1px; margin-bottom:22px; color:#f4f2f7; }
+  #endcard .sub { font-size:28px; color:#b9bdc9; max-width:1100px; line-height:1.5; margin:0 auto; }
+  #endcard .built { font-size:20px; color:#7f8494; margin-top:36px; letter-spacing:.4px; }
+
+  /* ---------- caption ---------- */
+  #caption {
+    position:absolute; bottom:46px; left:50%; transform:translateX(-50%);
+    max-width:1400px; background:rgba(12,13,18,.86); border:1px solid rgba(255,255,255,.08);
+    border-radius:16px; padding:16px 30px; font-size:24px; line-height:1.4; text-align:center;
+    color:#eef0f5; z-index:50;
+  }
+</style>
+
+<div id="stage">
+  <!-- SLACK BASE -->
+  <div class="layer" id="slack">
+    <div id="sidebar">
+      <div id="ws-head">Meals on Rails<span class="dot"></span></div>
+      <div class="side-sec">Channels</div>
+      <div class="side-item"><span class="h">#</span>general</div>
+      <div class="side-item active"><span class="h">#</span>incident-routing</div>
+      <div class="side-item"><span class="h">#</span>dispatch-ops</div>
+      <div class="side-item"><span class="h">#</span>deploys</div>
+      <div class="side-sec">Direct Messages</div>
+      <div class="side-item">🌙 Quiet Hours</div>
+      <div class="side-item">🤖 monitor-bot</div>
+      <div class="side-item">Marcus Lee</div>
+    </div>
+    <div id="main">
+      <div id="chan-head">
+        <div class="name"><span class="h">#</span>incident-routing</div>
+        <div class="meta">Routing outage · overnight on-call</div>
+      </div>
+      <div id="scrollport">
+        <div id="feed"></div>
+        <div class="scroll-highlight" id="scrollHi" style="display:none;"></div>
+        <div class="priya-highlight" id="priyaHi" style="display:none;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ARCHITECTURE -->
+  <div class="layer" id="arch" style="opacity:0;">
+    <div id="arch-title">How it works</div>
+    <div class="arch-node" id="an1" style="top:230px;"><div class="num" style="background:#5b5bd6;">1</div><div class="tag" style="color:#8b8bf0;">Real-Time Search API</div><div class="desc">→ detects one person, alone</div></div>
+    <div class="arch-node" id="an2" style="top:430px;"><div class="num" style="background:#e26d5c;">2</div><div class="tag" style="color:#f08b7a;">MCP server</div><div class="desc">→ pages a rested backup (PagerDuty)</div></div>
+    <div class="arch-node" id="an3" style="top:630px;"><div class="num" style="background:#2f9e5e;">3</div><div class="tag" style="color:#4fbf7f;">Slack AI</div><div class="desc">→ drafts the handoff + morning Canvas</div></div>
+    <div class="arch-arrow" id="ar1" style="left:1020px; top:275px; width:0;"></div>
+    <div class="arch-arrow" id="ar2" style="left:1020px; top:475px; width:0;"></div>
+    <div class="arch-arrow" id="ar3" style="left:1020px; top:675px; width:0;"></div>
+    <div id="arch-slack">💬</div>
+  </div>
+
+  <!-- SPLIT (handoff + pagerduty) -->
+  <div class="layer" id="split" style="opacity:0;">
+    <div id="split-left">
+      <div id="handoff-card">
+        <div class="hh"><div class="av">🌙</div><div class="who">Quiet Hours</div><div class="badge">🤝 Handoff — paged Marcus Lee</div></div>
+        <div id="handoff-title">Handoff note</div>
+        <div id="handoff-body"></div>
+      </div>
+    </div>
+    <div id="split-right">
+      <div id="lock-time">01:47</div>
+      <div id="lock-date">Thursday, overnight on-call</div>
+      <div id="pd-push">
+        <div class="ph"><span class="ic">▲</span> PagerDuty · now</div>
+        <div class="kind">INCIDENT ASSIGNED</div>
+        <div class="title">Routing outage handoff — from Quiet Hours</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MORNING CANVAS -->
+  <div class="layer" id="canvas-layer" style="opacity:0;">
+    <div id="canvas-port">
+      <div id="canvas-doc"></div>
+    </div>
+  </div>
+
+  <!-- DM PANEL -->
+  <div class="layer" id="dm-layer" style="opacity:0;">
+    <div id="dm">
+      <div id="dm-inner">
+        <div id="dm-head"><div class="av">🌙</div><div class="nm">Quiet Hours</div><div class="app">APP</div></div>
+        <div id="dm-title">You've been on this alone for 3h 5m 🌙</div>
+        <div id="dm-body"></div>
+        <div id="dm-fields">
+          <div class="field"><div class="lbl">Solo so far</div><div class="val">3h 5m</div></div>
+          <div class="field"><div class="lbl">Messages you sent</div><div class="val">32 messages</div></div>
+          <div class="field"><div class="lbl">Quietest stretch</div><div class="val">no one else has replied in 3h 5m</div></div>
+          <div class="field"><div class="lbl">Your local time</div><div class="val">01:00</div></div>
+        </div>
+        <div id="dm-buttons">
+          <div class="btn primary" id="btnHandoff">Hand off &amp; sleep</div>
+          <div class="btn">Snooze 30 min</div>
+          <div class="btn">I'm okay, keep going</div>
+        </div>
+        <div id="dm-confirm"></div>
+        <div id="dm-footer">Every number on this page was observed in Slack — nothing here is estimated or invented.</div>
+        <div id="footer-glow" style="opacity:0;"></div>
+      </div>
+    </div>
+    <svg id="cursor" viewBox="0 0 26 26" style="opacity:0;"><polygon points="2,2 2,20 8,15 12,23 15,22 11,14 19,13" fill="#fff" stroke="#000" stroke-width="1.2"/></svg>
+  </div>
+
+  <!-- NIGHT MOOD OVERLAYS -->
+  <div class="layer" id="lamp"></div>
+  <div class="layer" id="vignette"></div>
+  <div class="layer" id="dimmer" style="opacity:0;"></div>
+
+  <!-- END CARD -->
+  <div class="layer" id="endcard" style="opacity:0;">
+    <div class="box">
+      <div class="moon">🌙</div>
+      <div class="wm">Quiet Hours</div>
+      <div class="sub">An on-call agent that protects the human, not just the service.</div>
+      <div class="built" id="builtline" style="opacity:0;">Built on Slack · Real-Time Search API · MCP · Slack AI</div>
+    </div>
+  </div>
+
+  <!-- BLACKOUT (fade in/out) -->
+  <div class="layer" id="blackout"></div>
+
+  <!-- CAPTION -->
+  <div id="caption"></div>
+</div>
+
+<script>
+"use strict";
+window.FILM_DURATION = 158;
+
+/* ---------- easing ---------- */
+function clamp(x,a,b){ return x<a?a:(x>b?b:x); }
+function easeInOut(t){ t=clamp(t,0,1); return t<0.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2; }
+function easeOut(t){ t=clamp(t,0,1); return 1-Math.pow(1-t,3); }
+function easeIn(t){ t=clamp(t,0,1); return t*t*t; }
+/* linear normalized progress of t across [a,b] */
+function seg(t,a,b){ if(b<=a) return t>=b?1:0; return clamp((t-a)/(b-a),0,1); }
+function lerp(a,b,u){ return a+(b-a)*u; }
+
+/* ---------- incident data (from src/demo/incident-script.json) ---------- */
+var INCIDENT = [
+ {a:"monitorbot",bot:1,m:0,t:"⚠️ ALERT: ROUTE_SOLVER timeout (>30s) on dispatch-prod. 2 consecutive failures. Runbook: wiki/route-solver"},
+ {a:"priya",bot:0,m:2,t:"ugh what now. looking"},
+ {a:"priya",bot:0,m:4,t:"route solver is timing out on prod. probably just a blip, the nightly batch is heavy"},
+ {a:"monitorbot",bot:1,m:6,t:"⚠️ ALERT: ROUTE_SOLVER timeout (>30s) on dispatch-prod. 5 consecutive failures."},
+ {a:"priya",bot:0,m:9,t:"ok not a blip. 5 in a row. tailing the logs now"},
+ {a:"priya",bot:0,m:14,t:"seeing `ECONNREFUSED osrm:5000` all over the solver logs. so it can't reach the routing engine at all"},
+ {a:"priya",bot:0,m:18,t:"gonna try just restarting the solver pod, classic turn-it-off-and-on"},
+ {a:"priya",bot:0,m:23,t:"restarted. it came back up. alerts stopped. crossing fingers"},
+ {a:"monitorbot",bot:1,ok:1,m:31,t:"✅ RECOVERED: ROUTE_SOLVER responding normally on dispatch-prod."},
+ {a:"priya",bot:0,m:33,t:"ok phew. going to grab water"},
+ {a:"monitorbot",bot:1,m:44,t:"⚠️ ALERT: ROUTE_SOLVER timeout (>30s) on dispatch-prod. 3 consecutive failures."},
+ {a:"priya",bot:0,m:46,t:"you have GOT to be kidding me"},
+ {a:"priya",bot:0,m:49,t:"same ECONNREFUSED. so the restart didnt actually fix anything, it just delayed it. osrm itself must be unhealthy"},
+ {a:"priya",bot:0,m:54,t:"checked the osrm container. it IS running but its throwing `map data not loaded` on every request. so it's up but useless"},
+ {a:"priya",bot:0,m:58,t:"@marcus you around? getting weird routing failures on prod, could use a second set of eyes"},
+ {a:"monitorbot",bot:1,m:61,t:"⚠️ ALERT: ROUTE_SOLVER timeout (>30s) on dispatch-prod. 9 consecutive failures."},
+ {a:"priya",bot:0,marcus:1,m:66,t:"marcus is asleep, of course. it's almost midnight. ok. i'm on my own with this one"},
+ {a:"priya",bot:0,m:70,t:"ok think priya. map data not loaded. that means the osrm graph files are missing or the wrong version. what changed"},
+ {a:"priya",bot:0,m:76,t:"going through the deploy history. there was a deploy tonight at 22:40. `routing-config v2.3.0`. that's LITERALLY when the first alert fired"},
+ {a:"priya",bot:0,m:80,t:"22:40 deploy, 22:40 first timeout. that's not a coincidence. someone shipped a routing config change right before the biggest night of the quarter"},
+ {a:"priya",bot:0,m:85,t:"the v2.3.0 diff points osrm at a new map data path `/data/graph-2024q3/` but that directory doesn't exist on the prod volume. it was never uploaded. so osrm boots, finds no map, serves garbage"},
+ {a:"priya",bot:0,m:90,t:"ok so the fix is either upload the graph files (30gb, at midnight, on this wifi, lol no) or roll the config back to v2.2.4"},
+ {a:"priya",bot:0,m:94,t:"rolling back to routing-config v2.2.4. this SHOULD point osrm back at the old graph that actually exists"},
+ {a:"monitorbot",bot:1,m:98,t:"⚠️ ALERT: ROUTE_SOLVER timeout (>30s) on dispatch-prod. 14 consecutive failures."},
+ {a:"priya",bot:0,m:101,t:"rollback deployed. waiting for the pods to cycle. come on"},
+ {a:"priya",bot:0,m:108,t:"still timing out. WHY. the config rolled back but osrm is still holding the bad map path in memory. i think i have to hard restart osrm too, not just the solver"},
+ {a:"priya",bot:0,m:113,t:"restarting osrm with the reverted config now. if this doesn't work i genuinely don't know what's next"},
+ {a:"monitorbot",bot:1,m:120,t:"⚠️ ALERT: ROUTE_SOLVER timeout (>30s) on dispatch-prod. 19 consecutive failures."},
+ {a:"priya",bot:0,m:124,t:"osrm came up. it's loading the old graph. i can see `map data loaded: 4.2M edges` in the logs. that's the first good log line all night"},
+ {a:"priya",bot:0,m:129,t:"sending a test route request... it returned a route!! 8 stops, 22 minutes. IT WORKS"},
+ {a:"monitorbot",bot:1,ok:1,m:133,t:"✅ RECOVERED: ROUTE_SOLVER responding normally on dispatch-prod."},
+ {a:"priya",bot:0,m:136,t:"ok. ok. it's holding. no timeouts for a few min now"},
+ {a:"priya",bot:0,m:142,t:"i want to say it's fixed but i've been burned twice tonight already. going to watch it for a bit before i trust it"},
+ {a:"priya",bot:0,m:152,t:"still green. 19 min clean. i think the rollback actually held this time"},
+ {a:"priya",bot:0,priyaScare:1,m:158,t:"the thing that scares me is this was a config that got merged and deployed with nobody watching. if routing's still down at 6am we can't dispatch the 2,300 meals tomorrow. people are counting on those"},
+ {a:"priya",bot:0,m:164,t:"i should write all this down for whoever comes on in the morning so they don't have to reverse-engineer my brain at 6am"},
+ {a:"priya",bot:0,m:170,t:"root cause: routing-config v2.3.0 (deployed 22:40) pointed osrm at /data/graph-2024q3/ which was never uploaded. fix: rolled back to v2.2.4 + hard restart of osrm. do NOT re-deploy v2.3.0 until the graph files are actually on the prod volume"},
+ {a:"priya",bot:0,m:178,t:"it's almost 2am. i've been staring at this since before 11. my eyes hurt and i keep re-reading the same log line"},
+ {a:"priya",bot:0,m:184,t:"marcus if you see this when you wake up — it's stable, don't touch the routing config, full writeup above. i just need to close my laptop"},
+ {a:"priya",bot:0,lastSeed:1,m:187,t:"1:47am. still the only one here. i'll stay up a little longer just to be sure it holds"}
+];
+
+/* clock prefix: start 22:40, minutesFromStart added */
+function clockPrefix(min){
+  var base = 22*60+40; // 22:40
+  var tot = base + min;
+  var h = Math.floor(tot/60)%24; var m = tot%60;
+  return "["+String(h).padStart(2,"0")+":"+String(m).padStart(2,"0")+"]";
+}
+var AV = { priya:{c:"av-P",i:"P",n:"Priya"}, monitorbot:{c:"av-M",i:"🤖",n:"monitor-bot"} };
+
+/* ---------- build feed DOM once ---------- */
+var feed = document.getElementById("feed");
+var msgEls = [];
+function escapeHtml(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function renderText(s){
+  // inline `code` spans
+  var esc = escapeHtml(s);
+  esc = esc.replace(/`([^`]+)`/g, '<span class="code">$1</span>');
+  return esc;
+}
+INCIDENT.forEach(function(msg,idx){
+  var av = AV[msg.a];
+  var el = document.createElement("div");
+  el.className = "msg" + (msg.bot ? " bot":"");
+  if(msg.priyaScare) el.classList.add("priya-msg");
+  var textCls = msg.bot ? (msg.ok?"bot-ok":"bot-alert") : "";
+  el.innerHTML =
+    '<div class="av '+av.c+'">'+av.i+'</div>'+
+    '<div class="body">'+
+      '<div class="head"><span class="who">'+av.n+'</span><span class="ts">today</span></div>'+
+      '<div class="text '+textCls+'"><span class="clock">'+clockPrefix(msg.m)+'</span>'+renderText(msg.t)+'</div>'+
+    '</div>';
+  feed.appendChild(el);
+  msgEls.push(el);
+});
+
+/* Measure message offsets (top of each msg within feed) after layout */
+var msgTops = [];
+var feedHeight = 0;
+function measure(){
+  msgTops = msgEls.map(function(el){ return el.offsetTop; });
+  feedHeight = feed.scrollHeight;
+}
+measure();
+
+var PRIYA_SCARE_IDX = INCIDENT.findIndex(function(m){return m.priyaScare;});
+var MARCUS_IDX = INCIDENT.findIndex(function(m){return m.marcus;});
+var LAST_IDX = INCIDENT.length-1;
+var VIEWPORT_H = 1010;
+
+/* ---------- element refs ---------- */
+var E = {
+  blackout: document.getElementById("blackout"),
+  lamp: document.getElementById("lamp"),
+  vignette: document.getElementById("vignette"),
+  dimmer: document.getElementById("dimmer"),
+  slack: document.getElementById("slack"),
+  arch: document.getElementById("arch"),
+  split: document.getElementById("split"),
+  canvasLayer: document.getElementById("canvas-layer"),
+  dmLayer: document.getElementById("dm-layer"),
+  endcard: document.getElementById("endcard"),
+  caption: document.getElementById("caption"),
+  feed: feed,
+  scrollHi: document.getElementById("scrollHi"),
+  priyaHi: document.getElementById("priyaHi"),
+  dm: document.getElementById("dm"),
+  dmInner: document.getElementById("dm-inner"),
+  dmBody: document.getElementById("dm-body"),
+  dmFields: document.getElementById("dm-fields"),
+  dmButtons: document.getElementById("dm-buttons"),
+  dmConfirm: document.getElementById("dm-confirm"),
+  dmFooter: document.getElementById("dm-footer"),
+  footerGlow: document.getElementById("footer-glow"),
+  btnHandoff: document.getElementById("btnHandoff"),
+  cursor: document.getElementById("cursor"),
+  an1: document.getElementById("an1"),
+  an2: document.getElementById("an2"),
+  an3: document.getElementById("an3"),
+  ar1: document.getElementById("ar1"),
+  ar2: document.getElementById("ar2"),
+  ar3: document.getElementById("ar3"),
+  archTitle: document.getElementById("arch-title"),
+  archSlack: document.getElementById("arch-slack"),
+  handoffBody: document.getElementById("handoff-body"),
+  pdPush: document.getElementById("pd-push"),
+  canvasDoc: document.getElementById("canvas-doc"),
+  builtline: document.getElementById("builtline")
+};
+
+/* ---------- static string content ---------- */
+E.dmBody.textContent =
+  "It's 3h 5m into this and it looks like it's still just you. That's a lot to hold by yourself.\n\n"+
+  "No pressure at all — but if you'd like, I can page your backup and write the handoff note for you so you can actually sleep.";
+
+var HANDOFF_NOTE =
+  "Hey Marcus, I'm finally signing off at 2:00 AM. The v2.3.0 config update broke routing because it pointed OSRM to a map directory that doesn't exist yet. I rolled us back to v2.2.4 and did a hard restart of the OSRM pods. It's been stable for over 30 minutes now, and test routes are coming back clean. Please don't re-deploy v2.3.0 until someone actually uploads those missing graph files to the prod volume; otherwise, the morning meal dispatches will fail. Be kind to yourself today, Marcus—the system was a real nightmare tonight.";
+E.handoffBody.textContent = HANDOFF_NOTE;
+
+var CONFIRM_TEXT =
+  "Done. I've paged Marcus Lee and posted your handoff note. 🌙\n"+
+  "You're off the hook — go get some rest. We've got it from here.";
+
+/* Morning canvas markup (built once). First 2 sentences of note + … */
+var NOTE_FIRST2 = "Hey Marcus, I'm finally signing off at 2:00 AM. The v2.3.0 config update broke routing because it pointed OSRM to a map directory that doesn't exist yet. …";
+E.canvasDoc.innerHTML =
+  '<h1>What Priya carried last night</h1>'+
+  '<p class="intro">Last night one of us was on call alone into the small hours. Here\'s what that actually looked like — so it doesn\'t go unseen. Nothing below is a guess; every line was observed in Slack.</p>'+
+  '<h2>Timeline</h2>'+
+  '<div class="tl"><span class="t">22:42</span><span>went on call, alone</span></div>'+
+  '<div class="tl"><span class="t">01:47</span><span>paged Marcus Lee for backup</span></div>'+
+  '<div class="tl"><span class="t">01:47</span><span>handed off and resolved</span></div>'+
+  '<h2>By the numbers</h2>'+
+  '<div class="stat"><span class="k">Solo time</span><span class="v">3h 5m</span></div>'+
+  '<div class="stat"><span class="k">Messages sent</span><span class="v">32 messages</span></div>'+
+  '<div class="stat"><span class="k">Pings held quiet</span><span class="v">8 pings</span></div>'+
+  '<div class="stat"><span class="k">Backup paged at</span><span class="v">01:47 (Marcus Lee)</span></div>'+
+  '<div class="stat"><span class="k">Total incident duration</span><span class="v">3h 5m</span></div>'+
+  '<h2>Handoff note</h2>'+
+  '<blockquote>'+NOTE_FIRST2+'</blockquote>'+
+  '<p class="cfooter">Every number on this page was observed in Slack — nothing here is estimated or invented.</p>';
+
+/* ---------- captions (per VIDEO_SCRIPT.md accessibility list) ---------- */
+var CAPTIONS = [
+ {t0:0.0,  s:"It's 1:47 in the morning, and Priya has been fighting this outage alone for three hours — and nobody at her nonprofit knows."},
+ {t0:11.0, s:"A real overnight incident, compressed: one volunteer, a broken routing service, a sleeping backup."},
+ {t0:34.0, s:"Priya's own message: the stakes she's carrying alone."},
+ {t0:41.0, s:"Quiet Hours DMs her — reflecting only what it observed, and offering to help."},
+ {t0:56.0, s:"Observed facts only: solo time, messages, silence. Footer: nothing here is estimated or invented."},
+ {t0:70.0, s:"How it works: Real-Time Search API detects · MCP server pages PagerDuty · Slack AI drafts the note and Canvas."},
+ {t0:85.0, s:"One tap: Hand off & sleep. Backup paged, handoff posted, alerts silenced."},
+ {t0:100.0,s:"Handoff drafted from the real incident. A real PagerDuty page wakes Marcus."},
+ {t0:115.0,s:"Morning Canvas: the night made visible, in the agent's own observed terms."},
+ {t0:145.0,s:"Every incident tool optimizes for the service. Quiet Hours optimizes for the human."}
+];
+function captionFor(t){
+  var c = CAPTIONS[0];
+  for(var i=0;i<CAPTIONS.length;i++){ if(t>=CAPTIONS[i].t0) c=CAPTIONS[i]; }
+  return c;
+}
+
+/* ---------- beat boundaries ---------- */
+var BEATS = [0,11,34,41,56,70,85,100,115,145,158];
+
+/* ---------- helpers to set feed scroll & highlights ---------- */
+function setFeedScroll(px){ E.feed.style.transform = "translateY("+(-px)+"px)"; }
+
+function positionPriyaHighlight(){
+  // box around priya scare bubble, coords relative to feed (scrollport-anchored)
+  var el = msgEls[PRIYA_SCARE_IDX];
+  var top = el.offsetTop, h = el.offsetHeight;
+  var scroll = currentFeedScroll;
+  E.priyaHi.style.left = "28px";
+  E.priyaHi.style.width = (1620-56)+"px";
+  E.priyaHi.style.top = (top - scroll - 6)+"px";
+  E.priyaHi.style.height = (h+12)+"px";
+}
+function positionScrollHighlight(idx){
+  var el = msgEls[idx];
+  var top = el.offsetTop, h = el.offsetHeight;
+  E.scrollHi.style.left = "28px";
+  E.scrollHi.style.width = (1620-56)+"px";
+  E.scrollHi.style.top = (top - currentFeedScroll - 4)+"px";
+  E.scrollHi.style.height = (h+8)+"px";
+}
+
+var currentFeedScroll = 0;
+
+/* ---------- the master seek function ---------- */
+function seekTo(t){
+  t = clamp(t, 0, window.FILM_DURATION);
+
+  /* reset transient overlays each call (deterministic) */
+  E.scrollHi.style.display = "none";
+  E.priyaHi.style.display = "none";
+  E.footerGlow.style.opacity = "0";
+  E.cursor.style.opacity = "0";
+  E.btnHandoff.style.transform = "scale(1)";
+  E.btnHandoff.style.filter = "none";
+  // stale transforms parked at safe defaults; overwritten inside their own beats
+  if(t < 108 || t >= 115){ E.pdPush.style.transform = "translateX(760px)"; E.pdPush.style.opacity = "0"; }
+  if(t < 115 || t >= 145){ E.canvasDoc.style.transform = "translateY(0px)"; }
+
+  /* --- layer opacities default --- */
+  var slackOp=0, archOp=0, splitOp=0, canvasOp=0, dmOp=0, endOp=0, dimOp=0;
+  var lampOp=1, vignOp=1;
+
+  /* caption */
+  E.caption.textContent = captionFor(t).s;
+  E.caption.style.opacity = (t<1.2 || t>156.5) ? "0" : "1";
+
+  /* ============ BEAT 1 · 0–11 : black → fade in channel at last seed ============ */
+  // channel is the base; feed pre-scrolled to last seed message.
+  // compute scroll that puts LAST_IDX near bottom of viewport.
+  var lastTop = msgTops[LAST_IDX];
+  var lastEl = msgEls[LAST_IDX];
+  var scrollLastSeed = clamp(lastTop + lastEl.offsetHeight - VIEWPORT_H + 40, 0, feedHeight);
+
+  /* ============ compute per-beat visual state ============ */
+  if(t < 11){
+    slackOp = 1;
+    currentFeedScroll = scrollLastSeed;
+    // blackout fades out 1.5s window
+    var fadeIn = seg(t, 1.5, 4.0);
+    E.blackout.style.opacity = String(1 - easeInOut(fadeIn));
+    lampOp = 0.9; vignOp = 1;
+  }
+  else if(t < 34){
+    /* ===== BEAT 2 · 11–34 : overnight replay auto-scroll ===== */
+    slackOp = 1;
+    E.blackout.style.opacity = "0";
+    // scroll from top (0) to scrollLastSeed with speed ramp + a ~2s pause on marcus line
+    var maxScroll = clamp(feedHeight - VIEWPORT_H + 40, 0, feedHeight);
+    // marcus line target scroll (put marcus line centered)
+    var marcusTop = msgTops[MARCUS_IDX];
+    var marcusScroll = clamp(marcusTop - VIEWPORT_H*0.42, 0, maxScroll);
+
+    // timeline: 11 -> ~29 scroll to marcus; 29-31 pause; 31-34 finish to bottom
+    var pauseA = 29.0, pauseB = 31.0;
+    if(t < pauseA){
+      var u = seg(t, 11.0, pauseA);
+      // speed ramp: slow-fast-slow via easeInOut
+      currentFeedScroll = lerp(0, marcusScroll, easeInOut(u));
+    } else if(t < pauseB){
+      currentFeedScroll = marcusScroll;
+      // subtle highlight on marcus line
+      positionScrollHighlight(MARCUS_IDX);
+      E.scrollHi.style.display = "block";
+    } else {
+      var u2 = seg(t, pauseB, 34.0);
+      currentFeedScroll = lerp(marcusScroll, maxScroll, easeInOut(u2));
+    }
+  }
+  else if(t < 41){
+    /* ===== BEAT 3 · 34–41 : freeze on Priya scare, highlight her bubble ===== */
+    slackOp = 1;
+    E.blackout.style.opacity = "0";
+    // scroll so priya scare bubble is centered
+    var pTop = msgTops[PRIYA_SCARE_IDX];
+    var maxScroll3 = clamp(feedHeight - VIEWPORT_H + 40, 0, feedHeight);
+    currentFeedScroll = clamp(pTop - VIEWPORT_H*0.34, 0, maxScroll3);
+    // dim everything else 30% via dimmer, then highlight box on top
+    dimOp = 0.30 * easeOut(seg(t,34.0,35.2));
+    positionPriyaHighlight();
+    E.priyaHi.style.display = "block";
+  }
+  else if(t < 56){
+    /* ===== BEAT 4 · 41–56 : DM panel, slow 4% push-in ===== */
+    slackOp = 1; // keep dim slack behind
+    E.blackout.style.opacity = "0";
+    // hold feed where beat 3 left it
+    var pTop4 = msgTops[PRIYA_SCARE_IDX];
+    var maxS4 = clamp(feedHeight - VIEWPORT_H + 40, 0, feedHeight);
+    currentFeedScroll = clamp(pTop4 - VIEWPORT_H*0.34, 0, maxS4);
+    dimOp = 0.45; // darken slack behind DM
+    dmOp = easeOut(seg(t, 41.0, 42.4));
+    // push in 4% over the beat
+    var push = lerp(1.0, 1.04, easeInOut(seg(t,41.0,56.0)));
+    // beat 4: show only header+body (fields/buttons hidden by translate below); use panel translate 0
+    E.dm.style.transform = "scale("+push+")";
+    E.dm.style.top = "70px";
+    E.dmInner.style.transform = "translateY(0px)";
+    E.dmConfirm.style.display = "none";
+    E.dmButtons.style.display = "flex";
+    E.dmFields.style.opacity = "1";
+  }
+  else if(t < 70){
+    /* ===== BEAT 5 · 56–70 : pan down reveal fields + buttons + footer glow ===== */
+    slackOp = 1;
+    E.blackout.style.opacity = "0";
+    dimOp = 0.45;
+    dmOp = 1;
+    E.dm.style.transform = "scale(1.04)";
+    // pan down: translate inner up to reveal fields/buttons/footer
+    var pan = easeInOut(seg(t,56.0,62.0));
+    E.dmInner.style.transform = "translateY("+lerp(0,-70,pan)+"px)";
+    E.dmFields.style.opacity = "1";
+    E.dmButtons.style.display = "flex";
+    E.dmConfirm.style.display = "none";
+    E.dm.style.top = "70px";
+    // footer glow 66-68
+    if(t>=66 && t<68.2){
+      var g = Math.sin(seg(t,66,68.2)*Math.PI);
+      E.footerGlow.style.opacity = String(clamp(g,0,1));
+      // position under footer
+      var fr = E.dmFooter.getBoundingClientRect();
+      var dmr = E.dm.getBoundingClientRect();
+      E.footerGlow.style.left = (E.dmFooter.offsetLeft)+"px";
+      E.footerGlow.style.top = (E.dmFooter.offsetTop + E.dmFooter.offsetHeight + 6)+"px";
+      E.footerGlow.style.width = E.dmFooter.offsetWidth+"px";
+    }
+  }
+  else if(t < 85){
+    /* ===== BEAT 6 · 70–85 : architecture ===== */
+    slackOp = 1;
+    E.blackout.style.opacity = "0";
+    dimOp = 0.80; // dim slack to ~20% visible
+    archOp = easeOut(seg(t,70.0,71.5));
+    // staggered nodes at 71,75,79
+    setArchNode(E.an1, seg(t,71,72.4));
+    setArchNode(E.an2, seg(t,75,76.4));
+    setArchNode(E.an3, seg(t,79,80.4));
+    // arrows grow after each node
+    E.ar1.style.width = lerp(0,140,easeOut(seg(t,72.4,73.6)))+"px";
+    E.ar2.style.width = lerp(0,140,easeOut(seg(t,76.4,77.6)))+"px";
+    E.ar3.style.width = lerp(0,140,easeOut(seg(t,80.4,81.6)))+"px";
+    E.archSlack.style.opacity = String(easeOut(seg(t,81,82.5)));
+    E.archTitle.style.opacity = String(easeOut(seg(t,70.4,71.5)));
+  }
+  else if(t < 100){
+    /* ===== BEAT 7 · 85–100 : back in DM, cursor click, confirm swap ===== */
+    slackOp = 1;
+    E.blackout.style.opacity = "0";
+    dimOp = 0.45;
+    dmOp = 1;
+    E.dm.style.transform = "scale(1.04)";
+    E.dm.style.top = "70px";
+    E.dmInner.style.transform = "translateY(-70px)";
+    E.dmFields.style.opacity = "1";
+    // cursor moves off-screen(86) -> button(89)
+    E.cursor.style.opacity = String(easeOut(seg(t,86.0,86.8)));
+    var cu = easeInOut(seg(t,86.0,89.0));
+    // button center in stage coords
+    var br = E.btnHandoff;
+    // compute target using layout offsets: dm left 560 +push offset ~; approximate stage coords
+    var dmRect = E.dm.getBoundingClientRect();
+    var btnRect = br.getBoundingClientRect();
+    var tx = btnRect.left + btnRect.width*0.5;
+    var ty = btnRect.top + btnRect.height*0.5;
+    var startX = 1980, startY = 1120;
+    E.cursor.style.left = lerp(startX,tx,cu)+"px";
+    E.cursor.style.top  = lerp(startY,ty,cu)+"px";
+    // button depress 89.5
+    if(t>=89.5 && t<90.5){
+      E.btnHandoff.style.transform = "scale(.96)";
+      E.btnHandoff.style.filter = "brightness(1.25)";
+    } else {
+      E.btnHandoff.style.transform = "scale(1)";
+      E.btnHandoff.style.filter = "none";
+    }
+    // swap at 90.5
+    if(t>=90.5){
+      E.dmButtons.style.display = "none";
+      E.dmConfirm.style.display = "block";
+      E.dmConfirm.textContent = CONFIRM_TEXT;
+      E.dmConfirm.style.opacity = String(easeOut(seg(t,90.5,91.5)));
+      E.cursor.style.opacity = String(1-easeOut(seg(t,91,92)));
+    } else {
+      E.dmButtons.style.display = "flex";
+      E.dmConfirm.style.display = "none";
+    }
+  }
+  else if(t < 115){
+    /* ===== BEAT 8 · 100–115 : split — handoff note + pagerduty push ===== */
+    E.blackout.style.opacity = "0";
+    splitOp = easeOut(seg(t,100.0,101.5));
+    // pagerduty push slides in at 108
+    var slide = easeOut(seg(t,108.0,109.4));
+    E.pdPush.style.transform = "translateX("+lerp(760,0,slide)+"px)";
+    E.pdPush.style.opacity = String(slide);
+  }
+  else if(t < 145){
+    /* ===== BEAT 9 · 115–145 : morning canvas slow scroll ===== */
+    E.blackout.style.opacity = "0";
+    canvasOp = easeOut(seg(t,115.0,116.5));
+    lampOp = 0.15; vignOp = 0.4; // morning: lift the dark mood
+    // scroll from 0 to land on footer by 143
+    var docH = E.canvasDoc.scrollHeight;
+    var portH = 960;
+    var maxCS = clamp(docH - portH + 90, 0, docH);
+    var cu2 = easeInOut(seg(t,117.0,143.0));
+    var cscroll = lerp(0, maxCS, cu2);
+    E.canvasDoc.style.transform = "translateY("+(-cscroll)+"px)";
+  }
+  else {
+    /* ===== BEAT 10 · 145–158 : end card ===== */
+    E.blackout.style.opacity = "0";
+    endOp = easeOut(seg(t,145.0,146.8));
+    lampOp = 0; vignOp = 0.5;
+    E.builtline.style.opacity = String(easeOut(seg(t,150.0,151.5)));
+    // fade all to black 156-158
+    var fb = easeInOut(seg(t,156.0,158.0));
+    E.blackout.style.opacity = String(fb);
+  }
+
+  /* ---- apply feed scroll ---- */
+  setFeedScroll(currentFeedScroll);
+
+  /* ---- apply layer opacities ---- */
+  E.slack.style.opacity = String(slackOp);
+  E.arch.style.opacity  = String(archOp);
+  E.split.style.opacity = String(splitOp);
+  E.canvasLayer.style.opacity = String(canvasOp);
+  E.dmLayer.style.opacity = String(dmOp);
+  E.endcard.style.opacity = String(endOp);
+  E.dimmer.style.opacity = String(dimOp);
+  E.lamp.style.opacity = String(lampOp);
+  E.vignette.style.opacity = String(vignOp);
+
+  /* z-order: dimmer must sit between slack and DM. Handle via explicit stacking. */
+  // slack z0, dimmer z1, arch/split/canvas/dm z2, mood z3, endcard z4, blackout z5, caption z50
+  E.slack.style.zIndex = 1;
+  E.dimmer.style.zIndex = 2;
+  E.arch.style.zIndex = 3;
+  E.split.style.zIndex = 3;
+  E.canvasLayer.style.zIndex = 3;
+  E.dmLayer.style.zIndex = 3;
+  E.lamp.style.zIndex = 4;
+  E.vignette.style.zIndex = 4;
+  E.endcard.style.zIndex = 6;
+  E.blackout.style.zIndex = 7;
+}
+
+function setArchNode(el, u){
+  el.style.opacity = String(easeOut(u));
+  el.style.transform = "translateY("+lerp(24,0,easeOut(u))+"px)";
+}
+
+/* pointer-events off for mood layers already via CSS; set feed initial */
+window.seekTo = seekTo;
+
+/* remeasure on load (fonts) then seek to 0 */
+function boot(){ measure(); seekTo(0); }
+if(document.readyState==="complete") boot();
+else window.addEventListener("load", boot);
+seekTo(0);
+</script>

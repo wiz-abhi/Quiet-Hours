@@ -3,3 +3,5 @@ node_modules/
 data/
 *.log
 dist/
+tools/video/frames/
+tools/video/vo/

@@ -1,0 +1,29 @@
+# Render blueprint for Quiet Hours.
+# Socket Mode app + a tiny HTTP health endpoint (so the free web-service tier
+# can health-check it; an external pinger on / keeps it from idling).
+services:
+  - type: web
+    name: quiet-hours
+    runtime: docker
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /
+    envVars:
+      - key: SLACK_BOT_TOKEN
+        sync: false
+      - key: SLACK_APP_TOKEN
+        sync: false
+      - key: SLACK_SIGNING_SECRET
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3-flash-preview
+      - key: CEREBRAS_API_KEY
+        sync: false
+      - key: CEREBRAS_MODEL
+        value: gpt-oss-120b
+      - key: QH_TIMEZONE_OFFSET_HOURS
+        value: "5"
+      - key: NODE_ENV
+        value: production

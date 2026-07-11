@@ -28,13 +28,22 @@ Node process for the 3-week judging window.
 
 ## Option B — Render
 
-1. https://render.com → **New → Background Worker** (NOT Web Service — there is
-   no HTTP port) → connect the GitHub repo. Runtime: Docker.
-2. Add the same environment variables as above.
-3. Deploy and watch logs for the banner, then run the Slack-side test.
+The repo ships a `render.yaml` blueprint and the app exposes a tiny HTTP
+health endpoint on `PORT`, so it runs on Render's **free Web Service** tier
+(Background Workers are paid-only on Render).
 
-Render free tier idles *web services*, but **background workers** don't get
-health-checked for HTTP — which is exactly what a Socket Mode app wants.
+1. https://render.com → **New → Blueprint** → connect the GitHub repo
+   (`wiz-abhi/Quiet-Hours`). Render reads `render.yaml` automatically.
+2. When prompted, fill the secret env vars: `SLACK_BOT_TOKEN`,
+   `SLACK_APP_TOKEN`, `SLACK_SIGNING_SECRET`, `GEMINI_API_KEY`,
+   `CEREBRAS_API_KEY`. (Non-secret defaults come from the blueprint.)
+3. Deploy and watch logs for the 🌙 banner, then run the Slack-side test.
+4. **Keep-awake (required on the free tier):** free web services spin down
+   after ~15 min without inbound HTTP, which kills the Slack websocket.
+   Create a free monitor at https://uptimerobot.com or https://cron-job.org
+   that GETs your service URL (e.g. `https://quiet-hours.onrender.com/`)
+   every 5–10 minutes. This doubles as your uptime alerting for the
+   judging window.
 
 ## Option C — Anything with Docker
 

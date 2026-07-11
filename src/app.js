@@ -7,6 +7,8 @@
  * the modules it imports — keep it that way.
  */
 
+import http from 'node:http';
+
 import boltPkg from '@slack/bolt';
 
 import { config, getEnv } from './config.js';
@@ -285,10 +287,38 @@ app.event('app_home_opened', async ({ event, client, logger }) => {
 // --- Startup ----------------------------------------------------------------
 
 const PORT = Number.parseInt(getEnv('PORT', '3000'), 10);
+const STARTED_AT = Date.now();
+
+/**
+ * Minimal HTTP health endpoint. Socket Mode needs no inbound port, but free
+ * web hosts (Render free tier) require one to health-check — and an external
+ * uptime pinger hitting this keeps the service from being spun down.
+ */
+const healthServer = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(
+    JSON.stringify({
+      ok: true,
+      app: 'quiet-hours',
+      uptimeSeconds: Math.round((Date.now() - STARTED_AT) / 1000),
+      watching: config.watchedChannels.length,
+    }),
+  );
+});
+
+// The health endpoint is a convenience for hosted deploys — it must never
+// take the agent down. On any listen error (e.g. the port is taken by
+// another local app), log and carry on: Socket Mode needs no inbound port.
+healthServer.on('error', (err) => {
+  console.log(`    Health endpoint disabled (${err.code}: port ${PORT} unavailable)`);
+});
 
 (async () => {
   try {
-    await app.start(PORT);
+    await app.start();
+    healthServer.listen(PORT, () => {
+      console.log(`    Health endpoint on :${PORT}`);
+    });
     console.log('────────────────────────────────────────────');
     console.log(' 🌙 Quiet Hours is awake and watching over on-call.');
     console.log(`    Socket Mode · watching ${config.watchedChannels.length} channel(s)`);

@@ -2,7 +2,13 @@
 
 **An on-call agent that protects the human, not just the service.**
 
-Quiet Hours watches high-intensity Slack channels and steps in when it sees one person carrying an incident alone, late at night — offering a warm, honest intervention, drafting a handoff, and paging a rested backup so nobody burns out solo.
+A Slack app that watches high-intensity incident channels, notices when one person has been firefighting alone since the small hours, and steps in — a warm, honest DM, an AI-drafted handoff, and a page to a rested backup, all with the human's consent.
+
+`Track: Agent for Good` &nbsp;|&nbsp; `Slack Bolt` &nbsp;|&nbsp; `Real-Time Search API` &nbsp;|&nbsp; `MCP` &nbsp;|&nbsp; `Node 22`
+
+![Architecture](docs/architecture-diagram.png)
+
+**[▶ Watch the demo](docs/video/quiet-hours-demo-REAL.mp4)** — live Slack, real voiceover, captions, under 3 minutes.
 
 ---
 
@@ -14,7 +20,9 @@ Quiet Hours fills that gap. It doesn't diagnose, doesn't nag, and never invents 
 
 ## How it works
 
-Quiet Hours runs a transparent **4-signal heuristic** over channel activity. It triggers only when *all four* hold:
+Detection is **RTS-first with a permission-aware history fallback**: Quiet Hours prefers Slack's Real-Time Search API for fresh, low-latency channel context, and falls back to `conversations.history`/`replies` (under the bot's existing scopes) when no fresh RTS action token is available — the two paths are normalized into the same shape, so the heuristic below never has to care which one served it.
+
+Quiet Hours runs a transparent **4-signal heuristic** over that channel activity. It triggers only when *all four* hold:
 
 1. **Single carrier** — one person has sent ≥ 30 messages in the incident window.
 2. **No relief** — no other human has replied for ≥ 60 minutes.
@@ -34,7 +42,7 @@ At every step the human keeps agency: **keep-going** and **snooze** are always o
 
 | Technology | Where it's used |
 |---|---|
-| **Slack Real-Time Search (RTS) API** | Detection. `src/detection/rtsClient.js` + `watcher.js` pull real-time channel context (who's speaking, how often, when others last replied) that feeds the heuristic in `heuristic.js`. |
+| **Slack Real-Time Search (RTS) API** | Detection, RTS-first with a permission-aware history fallback. `src/detection/rtsClient.js` + `watcher.js` pull channel context (who's speaking, how often, when others last replied) that feeds the heuristic in `heuristic.js`. |
 | **MCP server integration** | Handoff. `src/mcp/pagerdutyServer.js` exposes `get_oncall` and `page_backup` tools; `pagerdutyClient.js` calls them to find and page a rested backup from the PagerDuty schedule. |
 | **Slack AI** | The Assistant surface (App Home / DM assistant), the **AI-drafted handoff note** (`src/agent/handoff.js`; provider chain Anthropic → Gemini → Cerebras, with a templated fallback), and the morning **Canvas** (`src/ui/canvas.js`). |
 

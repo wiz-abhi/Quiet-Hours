@@ -20,7 +20,7 @@ import { copy } from './ui/copy.js';
 import * as mcp from './mcp/pagerdutyClient.js';
 import * as agent from './agent/handoff.js';
 import { makeInterventionEngine } from './agent/interventionEngine.js';
-import { registerWatcher, getActionToken } from './detection/watcher.js';
+import { registerWatcher, getActionToken, recordActionToken } from './detection/watcher.js';
 import { evaluate } from './detection/heuristic.js';
 import { fetchThreadContext } from './detection/rtsClient.js';
 import { seedDemo, buildHeuristicContextFromScript } from './demo/seed.js';
@@ -203,12 +203,21 @@ app.command('/quiethours', async ({ command, ack, respond, client, logger }) => 
           now: Date.now(),
           localHour: threadContext?.localHour ?? config.thresholds.minLocalHour,
         });
+        const source = threadContext?.source ?? 'unknown';
+        // Explain the context source so a judge understands the RTS vs history
+        // result. `rts` means we used Slack's Real-Time Search API with a fresh
+        // action token; `history` is the always-available fallback and simply
+        // means no fresh RTS token was in hand for this channel yet.
+        const sourceNote =
+          source === 'rts'
+            ? ' (live Real-Time Search API — assistant.search.context)'
+            : source === 'history'
+              ? ' (no fresh RTS action token yet — @mention me first, then re-run)'
+              : '';
         await respond({
           response_type: 'ephemeral',
           text:
-            `🧪 Detection test — triggered: *${result.triggered}* · context source: *${
-              threadContext?.source ?? 'unknown'
-            }*\nReasons: ${(result.reasons ?? []).join(', ') || 'none'}`,
+            `🧪 Detection test — triggered: *${result.triggered}* · context source: *${source}*${sourceNote}\nReasons: ${(result.reasons ?? []).join(', ') || 'none'}`,
         });
         break;
       }
@@ -281,6 +290,67 @@ app.event('app_home_opened', async ({ event, client, logger }) => {
     });
   } catch (error) {
     logger.error('app_home_opened failed', error);
+  }
+});
+
+// --- Mentions & assistant threads (RTS action-token capture) ----------------
+
+/**
+ * Probe the known payload locations for a short-lived RTS `action_token`.
+ * Slack attaches these to certain event payloads (app_mention, assistant
+ * threads); the exact nesting varies by event type, so we check each spot
+ * defensively. Returns the first truthy token found, or null.
+ * @param {any} event
+ * @param {any} body
+ * @returns {string|null}
+ */
+function extractActionToken(event, body) {
+  return (
+    event?.assistant_thread?.action_token ||
+    body?.event?.assistant_thread?.action_token ||
+    event?.action_token ||
+    body?.action_token ||
+    null
+  );
+}
+
+// When a human @mentions the bot, Slack often includes a fresh RTS action
+// token in the payload. Capture it so the next `/quiethours test` (or a live
+// trigger) can use the real Real-Time Search API instead of the history
+// fallback — and reply warmly so the judge gets a helpful response.
+app.event('app_mention', async ({ event, body, client, logger }) => {
+  try {
+    const channelId = event?.channel;
+    const token = extractActionToken(event, body);
+    if (channelId && token) recordActionToken(channelId, token);
+
+    if (channelId) {
+      await client.chat.postMessage({
+        channel: channelId,
+        thread_ts: event?.thread_ts || event?.ts,
+        text:
+          "👋 I'm watching this channel. Try `/quiethours test` to see live " +
+          'detection, or `/quiethours demo` for the full story.',
+      });
+    }
+  } catch (error) {
+    logger.error('app_mention failed', error);
+  }
+});
+
+// assistant_thread_started carries an action token too. We only capture it —
+// no reply — so this stays a low-risk, purely-additive token source.
+app.event('assistant_thread_started', async ({ event, body, logger }) => {
+  try {
+    const channelId =
+      event?.assistant_thread?.channel_id ||
+      body?.event?.assistant_thread?.channel_id ||
+      event?.channel ||
+      null;
+    const token = extractActionToken(event, body);
+    if (channelId && token) recordActionToken(channelId, token);
+  } catch (error) {
+    logger.error('assistant_thread_started failed', error);
   }
 });
 

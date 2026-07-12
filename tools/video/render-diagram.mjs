@@ -1,0 +1,14 @@
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import path from 'node:path';
+import puppeteer from 'puppeteer-core';
+const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+const html = 'C:/Users/abhis/Desktop/WD/HackX/docs/architecture-diagram.html';
+const out = 'C:/Users/abhis/Desktop/WD/HackX/docs/architecture-diagram.png';
+const b = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args: ['--force-device-scale-factor=2','--hide-scrollbars'] });
+const p = await b.newPage();
+await p.setViewport({ width: 1600, height: 900, deviceScaleFactor: 2 });
+await p.goto(pathToFileURL(html).href, { waitUntil: 'networkidle0' });
+await new Promise(r => setTimeout(r, 800));
+await p.screenshot({ path: out, fullPage: true });
+console.log('rendered', out);
+await b.close();

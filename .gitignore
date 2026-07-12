@@ -1,7 +1,12 @@
-node_modules/
+*.log
 .env
 data/
-*.log
 dist/
+node_modules/
+tools/video/assets/
+tools/video/captions/
 tools/video/frames/
+tools/video/probe/
+tools/video/raw/
+tools/video/segments/
 tools/video/vo/
